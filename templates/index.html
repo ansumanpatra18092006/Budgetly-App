@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budgetly - Personal Finance Tracker</title>
+    <meta name="description" content="Elegant personal finance management for modern professionals">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/pages.css">
+    <link rel="stylesheet" href="/static/css/responsive.css">
+    <link rel="stylesheet" href="/static/css/roadmap.css">
+</head>
+
+<body>
+
+    <div class="app-container">
+
+        <!-- ================================================
+         SIDEBAR
+    ================================================ -->
+        <aside class="sidebar" role="navigation" aria-label="Main navigation">
+            <div class="sidebar-header">
+                <div class="brand">
+                    <div class="brand-icon">
+                        <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+                    </div>
+                    <div class="brand-text">
+                        <h2>Budgetly<span class="brand-subtitle">Pro</span></h2>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="nav-links">
+                <button class="nav-item active" data-target="dashboard" aria-label="Dashboard">
+                    <div class="nav-icon"><i class="fa-solid fa-chart-pie" aria-hidden="true"></i></div>
+                    <span class="nav-label">Dashboard</span>
+                </button>
+                <button class="nav-item" data-target="add" aria-label="Add Transaction">
+                    <div class="nav-icon"><i class="fa-solid fa-circle-plus" aria-hidden="true"></i></div>
+                    <span class="nav-label">Add Transaction</span>
+                </button>
+                <button class="nav-item" data-target="history" aria-label="Transaction History">
+                    <div class="nav-icon"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></div>
+                    <span class="nav-label">History</span>
+                </button>
+                <button class="nav-item" data-target="goals" aria-label="Financial Goals">
+                    <div class="nav-icon"><i class="fa-solid fa-bullseye" aria-hidden="true"></i></div>
+                    <span class="nav-label">Goals</span>
+                </button>
+                <button class="nav-item" data-target="roadmap" aria-label="Goal Roadmap">
+                    <div class="nav-icon"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i></div>
+                    <span class="nav-label">Roadmap</span>
+                </button>
+                <button class="nav-item" data-target="insights" aria-label="Detailed Insights">
+                    <div class="nav-icon"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i></div>
+                    <span class="nav-label">Insights</span>
+                </button>
+                <button class="nav-item" data-target="profile" aria-label="Profile">
+                    <div class="nav-icon"><i class="fa-solid fa-user" aria-hidden="true"></i></div>
+                    <span class="nav-label">Profile</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="theme-toggle" id="themeToggleBtn" aria-label="Toggle dark mode">
+                    <i class="fa-solid fa-moon theme-icon" aria-hidden="true"></i>
+                    <span>Dark Mode</span>
+                </button>
+                <button class="logout-btn" id="logoutBtn" aria-label="Logout">
+                    <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ================================================
+         MAIN CONTENT
+    ================================================ -->
+        <main class="main-content">
+
+            <!-- ============ DASHBOARD PAGE ============ -->
+            <section id="dashboard" class="page active">
+
+                <!-- Recurring modal (fixed overlay) -->
+                <div id="recurringModal" class="recurring-modal hidden">
+                    <div class="recurring-card">
+                        <h3>Recurring Expense Detected</h3>
+                        <p id="recurringText"></p>
+                        <div class="recurring-actions">
+                            <button id="recurringYes" class="btn btn-primary">Yes, Add</button>
+                            <button id="recurringNo" class="btn btn-secondary">No</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PAGE HEADER -->
+                <header class="page-header">
+                    <div class="header-text">
+                        <h1 class="page-title">Dashboard</h1>
+                        <p class="page-subtitle">
+                            <i class="fa-regular fa-calendar" aria-hidden="true"></i>
+                            <span id="currentDate"></span>
+                        </p>
+                    </div>
+                    <div class="header-actions" style="display:flex;align-items:center;gap:var(--spacing-md);">
+                        <span id="riskIndicator"></span>
+                        <div class="budget-control">
+                            <label for="budgetInput" class="budget-label">
+                                <i class="fa-solid fa-bullseye" aria-hidden="true"></i>
+                                Monthly Budget
+                            </label>
+                            <div class="budget-input-wrapper">
+                                <span class="currency-symbol" aria-hidden="true">₹</span>
+                                <input type="number" id="budgetInput" placeholder="Set limit" value="50000"
+                                    aria-label="Monthly budget limit" min="0">
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- BUDGET WARNING -->
+                <div id="budgetWarning" class="alert alert-danger hidden" role="alert">
+                    <i class="fa-solid fa-triangle-exclamation alert-icon" aria-hidden="true"></i>
+                    <div class="alert-content">
+                        <strong>Budget Exceeded</strong>
+                        <p>You've spent more than your monthly budget. Consider reviewing your expenses.</p>
+                    </div>
+                </div>
+
+                <!-- ROW 1: STAT CARDS -->
+                <div class="stats-grid">
+                    <article class="stat-card stat-balance">
+                        <div class="stat-header">
+                            <div class="stat-icon"><i class="fa-solid fa-wallet" aria-hidden="true"></i></div>
+                            <h3 class="stat-label">Total Balance</h3>
+                        </div>
+                        <div class="stat-value" id="balance">₹0.00</div>
+                        <div class="stat-footer">
+                            <span class="stat-trend positive">
+                                <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
+                                +0% vs last month
+                            </span>
+                        </div>
+                    </article>
+                    <article class="stat-card stat-income">
+                        <div class="stat-header">
+                            <div class="stat-icon"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i></div>
+                            <h3 class="stat-label">Total Income</h3>
+                        </div>
+                        <div class="stat-value" id="income">₹0.00</div>
+                        <div class="stat-footer">
+                            <span class="stat-trend positive">
+                                <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
+                                This month
+                            </span>
+                        </div>
+                    </article>
+                    <article class="stat-card stat-expense">
+                        <div class="stat-header">
+                            <div class="stat-icon"><i class="fa-solid fa-arrow-trend-down" aria-hidden="true"></i></div>
+                            <h3 class="stat-label">Total Expenses</h3>
+                        </div>
+                        <div class="stat-value" id="expense">₹0.00</div>
+                        <div class="stat-footer">
+                            <span class="stat-trend negative">
+                                <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
+                                This month
+                            </span>
+                        </div>
+                    </article>
+                </div>
+
+                <!-- ROW 2: AI INSIGHTS (full-width horizontal scroll) -->
+                <div class="ai-insights-section">
+                    <h2>
+                        <i class="fa-solid fa-sparkles" style="color:var(--primary)"></i>
+                        AI Financial Insights
+                    </h2>
+                    <div id="aiInsightsContainer"></div>
+                </div>
+
+                <!-- ROW 3: HEALTH SCORE + BEHAVIORAL PATTERNS side-by-side -->
+                <div class="dashboard-mid-grid">
+
+                    <div class="health-score-card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Financial Health Score</h2>
+                                <p class="card-subtitle">Based on your spending patterns and savings</p>
+                            </div>
+                        </div>
+                        <div class="health-display">
+                            <div>
+                                <div class="score-circle">
+                                    <span id="healthScore">0</span>
+                                </div>
+                                <div class="score-label" id="healthLabel">Excellent</div>
+                            </div>
+                            <div class="health-factors">
+                                <div class="factor-item">
+                                    <div class="factor-header">
+                                        <span class="factor-name">Savings Rate</span>
+                                        <span class="factor-value" id="savingsRate">0%</span>
+                                    </div>
+                                    <div class="factor-bar">
+                                        <div class="factor-fill" id="savingsBar" style="width:0%"></div>
+                                    </div>
+                                </div>
+                                <div class="factor-item">
+                                    <div class="factor-header">
+                                        <span class="factor-name">Budget Adherence</span>
+                                        <span class="factor-value" id="budgetAdherence">0%</span>
+                                    </div>
+                                    <div class="factor-bar">
+                                        <div class="factor-fill" id="budgetBar" style="width:0%"></div>
+                                    </div>
+                                </div>
+                                <div class="factor-item">
+                                    <div class="factor-header">
+                                        <span class="factor-name">Income Stability</span>
+                                        <span class="factor-value" id="incomeStability">0%</span>
+                                    </div>
+                                    <div class="factor-bar">
+                                        <div class="factor-fill" id="incomeBar" style="width:0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="behavioral-patterns-section chart-card">
+                        <div class="card-header">
+                            <h2 class="card-title">
+                                <i class="fa-solid fa-brain"
+                                    style="color:var(--violet);margin-right:8px;font-size:.9em;"></i>
+                                Behavioral Patterns
+                            </h2>
+                        </div>
+                        <div id="behavioralPatternsContainer"></div>
+                    </div>
+
+                </div>
+
+                <!-- ROW 4: CHARTS -->
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="card-header">
+                            <h2 class="card-title">Expense Breakdown</h2>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="categoryChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="card-header">
+                            <h2 class="card-title">Monthly Trend</h2>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ============ ADD TRANSACTION PAGE ============ -->
+            <section id="add" class="page">
+                <header class="page-header">
+                    <div class="header-text">
+                        <h1 class="page-title">Add Transaction</h1>
+                        <p class="page-subtitle">Record your income or expenses</p>
+                    </div>
+                </header>
+
+                <div class="health-score-card">
+                    <form class="form-grid transaction-form" id="transactionForm" novalidate>
+                        <div class="form-group">
+                            <label for="description" class="form-label">Description</label>
+                            <input type="text" id="description" class="form-input" placeholder="e.g., Grocery shopping"
+                                required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="amount" class="form-label">Amount (₹)</label>
+                            <input type="number" id="amount" class="form-input" placeholder="0.00" step="0.01"
+                                min="0.01" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="transactionType" class="form-label">Type</label>
+                            <select id="transactionType" class="form-select" required>
+                                <option value="expense">Expense</option>
+                                <option value="income">Income</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="category" class="form-label">Category</label>
+                            <select id="category" class="form-select">
+                                <option value="">Auto-detect</option>
+                                <option value="Food">Food</option>
+                                <option value="Transport">Transport</option>
+                                <option value="Rent">Rent</option>
+                                <option value="Utilities">Utilities</option>
+                                <option value="Shopping">Shopping</option>
+                                <option value="Health">Health</option>
+                                <option value="Education">Education</option>
+                                <option value="Entertainment">Entertainment</option>
+                                <option value="Subscriptions">Subscriptions</option>
+                                <option value="Travel">Travel</option>
+                                <option value="Personal">Personal</option>
+                                <option value="Family">Family</option>
+                                <option value="Finance">Finance</option>
+                                <option value="Insurance">Insurance</option>
+                                <option value="Misc">Misc</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="notes" class="form-label">Notes (Optional)</label>
+                            <textarea id="notes" class="form-textarea"
+                                placeholder="Add additional details..."></textarea>
+                        </div>
+
+                        <div class="form-actions" style="grid-column: 1 / -1;">
+                            <button type="submit" class="btn-primary" id="submitTxBtn">
+                                <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                                Add Transaction
+                            </button>
+                            <button type="button" class="btn-secondary" id="resetTxBtn">
+                                <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
+                                Reset
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ============ HISTORY PAGE ============ -->
+            <section id="history" class="page">
+                <header class="page-header">
+                    <div class="header-text">
+                        <h1 class="page-title">Transaction History</h1>
+                        <p class="page-subtitle">View and manage all transactions</p>
+                    </div>
+                </header>
+
+                <div class="filter-controls">
+                    <input type="file" id="csvInput" hidden accept=".csv">
+                    <button class="btn-secondary" id="importCsvBtn">
+                        <i class="fa-solid fa-file-import" aria-hidden="true"></i> Import CSV
+                    </button>
+                    <button class="btn-secondary" id="exportCsvBtn" aria-label="Export transactions to CSV">
+                        <i class="fa-solid fa-download" aria-hidden="true"></i> Export CSV
+                    </button>
+
+                    <input type="date" id="filterStart" class="filter-select" aria-label="Filter start date">
+                    <input type="date" id="filterEnd" class="filter-select" aria-label="Filter end date">
+
+                    <select id="filterType" class="filter-select" aria-label="Filter by type">
+                        <option value="All">All Types</option>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                    </select>
+
+                    <select id="filterCategory" class="filter-select">
+                        <option value="All">All Categories</option>
+                        <option value="Food">Food</option>
+                        <option value="Transport">Transport</option>
+                        <option value="Rent">Rent</option>
+                        <option value="Utilities">Utilities</option>
+                        <option value="Shopping">Shopping</option>
+                        <option value="Health">Health</option>
+                        <option value="Education">Education</option>
+                        <option value="Entertainment">Entertainment</option>
+                        <option value="Subscriptions">Subscriptions</option>
+                        <option value="Travel">Travel</option>
+                        <option value="Personal">Personal</option>
+                        <option value="Family">Family</option>
+                        <option value="Finance">Finance</option>
+                        <option value="Insurance">Insurance</option>
+                        <option value="Misc">Misc</option>
+                    </select>
+
+                    <input type="text" id="filterSearch" class="filter-select" placeholder="Search description…"
+                        aria-label="Search transactions">
+
+                    <button class="btn-primary" id="applyFiltersBtn">
+                        <i class="fa-solid fa-filter" aria-hidden="true"></i> Apply
+                    </button>
+                    <button class="btn-secondary" id="resetFiltersBtn">
+                        <i class="fa-solid fa-xmark" aria-hidden="true"></i> Reset
+                    </button>
+                    <button class="btn-secondary" id="clearAllTxBtn"
+                        style="background:rgba(220,38,38,0.1);color:var(--danger);" aria-label="Clear all transactions">
+                        <i class="fa-solid fa-trash" aria-hidden="true"></i> Clear All
+                    </button>
+                </div>
+
+                <ul class="transaction-list" id="transactionsList">
+                    <div class="empty-state">
+                        <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+                        <p>No transactions yet. Add one from the "Add Transaction" page to get started!</p>
+                    </div>
+                </ul>
+            </section>
+
+            <!-- ============ GOALS PAGE ============ -->
+            <section id="goals" class="page">
+                <header class="page-header">
+                    <div class="header-text">
+                        <h1 class="page-title">Financial Goals</h1>
+                        <p class="page-subtitle">Track, fund, and achieve your savings targets</p>
+                    </div>
+                    <button class="btn-primary" id="newGoalBtn" aria-label="Create new goal">
+                        <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                        <span>New Goal</span>
+                    </button>
+                </header>
+
+                <!-- Summary Bar -->
+                <div class="goals-summary" id="goalsSummary" style="display:none;">
+                    <div class="goals-summary-card">
+                        <div class="goals-summary-label"><i class="fa-solid fa-bullseye"
+                                style="margin-right:5px;"></i>Total Goals</div>
+                        <div class="goals-summary-value" id="summaryTotal">0</div>
+                    </div>
+                    <div class="goals-summary-card">
+                        <div class="goals-summary-label"><i class="fa-solid fa-circle-check"
+                                style="margin-right:5px;color:var(--success);"></i>Completed</div>
+                        <div class="goals-summary-value" id="summaryCompleted" style="color:var(--success);">0</div>
+                    </div>
+                    <div class="goals-summary-card">
+                        <div class="goals-summary-label"><i class="fa-solid fa-piggy-bank"
+                                style="margin-right:5px;color:var(--primary);"></i>Total Saved</div>
+                        <div class="goals-summary-value" id="summarySaved" style="color:var(--primary);">₹0</div>
+                    </div>
+                    <div class="goals-summary-card">
+                        <div class="goals-summary-label"><i class="fa-solid fa-flag" style="margin-right:5px;"></i>Total
+                            Target</div>
+                        <div class="goals-summary-value" id="summaryTarget">₹0</div>
+                    </div>
+                </div>
+
+                <!-- New Goal Form -->
+                <div class="goal-form-container hidden" id="goalFormContainer">
+                    <h3 class="form-title">
+                        <i class="fa-solid fa-circle-plus" style="color:var(--primary);margin-right:8px;"></i>
+                        Create New Goal
+                    </h3>
+                    <form id="goalForm" novalidate>
+                        <div class="form-row">
+                            <div class="form-section">
+                                <label for="goalName" class="form-label">Goal Name</label>
+                                <input type="text" id="goalName" class="form-input" placeholder="e.g., Emergency Fund"
+                                    required>
+                            </div>
+                            <div class="form-section">
+                                <label for="goalTarget" class="form-label">Target Amount (₹)</label>
+                                <input type="number" id="goalTarget" class="form-input" placeholder="0.00" step="0.01"
+                                    min="0" required>
+                            </div>
+                            <div class="form-section">
+                                <label for="goalCategory" class="form-label">Category</label>
+                                <select id="goalCategory" class="form-select">
+                                    <option value="Savings">Savings</option>
+                                    <option value="Investment">Investment</option>
+                                    <option value="Emergency">Emergency Fund</option>
+                                    <option value="Vacation">Vacation</option>
+                                    <option value="Education">Education</option>
+                                    <option value="Home">Home</option>
+                                    <option value="Vehicle">Vehicle</option>
+                                    <option value="Retirement">Retirement</option>
+                                </select>
+                            </div>
+                            <div class="form-section">
+                                <label for="goalTargetDate" class="form-label">Target Date <span
+                                        style="color:var(--text-tertiary);font-weight:400;">(optional)</span></label>
+                                <input type="date" id="goalTargetDate" class="form-input">
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary" id="addGoalBtn">
+                                <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save Goal
+                            </button>
+                            <button type="button" class="btn-secondary" id="cancelGoalBtn">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Goals Grid -->
+                <div class="goals-list" id="goalsList"></div>
+
+                <!-- Empty State -->
+                <div class="empty-state hidden" id="goalsEmpty">
+                    <i class="fa-regular fa-bullseye" aria-hidden="true"></i>
+                    <p>No financial goals yet. Start setting targets to build your future.</p>
+                    <button class="btn-secondary" id="createFirstGoalBtn">
+                        <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                        Create your first goal
+                    </button>
+                </div>
+            </section>
+
+
+            <!-- ============ ROADMAP PAGE ============ -->
+            <section id="roadmap" class="page">
+                <!-- Populated dynamically by roadmap.js -->
+            </section>
+
+            <!-- ============ INSIGHTS PAGE ============ -->
+            <section id="insights" class="page">
+                <header class="page-header">
+                    <div class="header-text">
+                        <h1 class="page-title">Detailed Insights</h1>
+                        <p class="page-subtitle">Deep analysis of your spending patterns</p>
+                    </div>
+                </header>
+
+                <div class="insights-tabs" role="tablist">
+                    <button class="insights-tab active" data-insight="analysis" role="tab">Spending Analysis</button>
+                    <button class="insights-tab" data-insight="trends" role="tab">Trends</button>
+                    <button class="insights-tab" data-insight="anomalies" role="tab">Anomalies</button>
+                    <button class="insights-tab" data-insight="recommendations" role="tab">Recommendations</button>
+                    <button class="insights-tab" data-insight="subscriptions" role="tab">Subscriptions</button>
+                </div>
+
+                <div class="insights-grid">
+                    <div id="dynamicInsights" class="insight-card full-width"></div>
+
+                    <div class="insight-card">
+                        <h3 class="card-title">Top Spending Categories</h3>
+                        <p class="card-subtitle" style="margin-bottom:var(--spacing-lg);">Last 30 days</p>
+                        <div id="topCategoriesContainer" style="display:flex;flex-direction:column;gap:10px;"></div>
+                    </div>
+
+                    <div class="insight-card">
+                        <h3 class="card-title">Spending Insights</h3>
+                        <p class="card-subtitle" style="margin-bottom:var(--spacing-lg);">Compared to last month</p>
+                        <div
+                            style="padding:var(--spacing-md);background:var(--success-light);border-radius:var(--radius-md);color:var(--success);">
+                            <div id="insightsContainer"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ PROFILE PAGE ============ -->
+            <section id="profile" class="page">
+                <header class="page-header">
+                    <div class="header-text">
+                        <h1 class="page-title">Your Profile</h1>
+                        <p class="page-subtitle">
+                            <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                            Account information &amp; settings
+                        </p>
+                    </div>
+                </header>
+
+                <div class="profile-layout">
+
+                    <!-- Left: Hero card -->
+                    <aside>
+                        <div class="profile-hero">
+                            <div class="profile-avatar" id="profileAvatar" aria-hidden="true">?</div>
+                            <h2 class="profile-hero-name" id="profileHeroName">Loading&hellip;</h2>
+                            <p class="profile-hero-email" id="profileHeroEmail">&mdash;</p>
+                            <span class="profile-status-badge" role="status">
+                                <span class="profile-status-dot" aria-hidden="true"></span>
+                                Account Active
+                            </span>
+
+                            <div class="profile-meta-grid" aria-label="Account summary">
+                                <div class="profile-meta-item">
+                                    <div class="profile-meta-label">Account Type</div>
+                                    <div class="profile-meta-value">
+                                        <i class="fa-solid fa-user-check"
+                                            style="color:var(--primary);font-size:.75rem;margin-right:4px;"
+                                            aria-hidden="true"></i>
+                                        Standard
+                                    </div>
+                                </div>
+                                <div class="profile-meta-item">
+                                    <div class="profile-meta-label">Status</div>
+                                    <div class="profile-meta-value" style="color:var(--success);">
+                                        <i class="fa-solid fa-circle-check" style="font-size:.75rem;margin-right:4px;"
+                                            aria-hidden="true"></i>
+                                        Verified
+                                    </div>
+                                </div>
+                                <div class="profile-meta-item" style="grid-column:1/-1;">
+                                    <div class="profile-meta-label">User ID</div>
+                                    <div class="profile-meta-value" id="profileIdMeta"
+                                        style="font-family:var(--font-mono);font-size:.8rem;letter-spacing:.02em;color:var(--text-secondary);">
+                                        &mdash;</div>
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <!-- Right: Info + Actions -->
+                    <div class="profile-right">
+
+                        <!-- Info card -->
+                        <div class="profile-info-card" role="region" aria-label="Profile information">
+                            <div class="profile-card-header">
+                                <div class="profile-card-icon" aria-hidden="true">
+                                    <i class="fa-solid fa-id-card"></i>
+                                </div>
+                                <div>
+                                    <div class="profile-card-title">Account Details</div>
+                                    <div class="profile-card-subtitle">Your registered information</div>
+                                </div>
+                            </div>
+
+                            <div class="profile-fields-grid">
+                                <div class="profile-field form-group">
+                                    <label for="profileName" class="profile-field-label form-label">
+                                        <i class="fa-solid fa-user" aria-hidden="true"></i>
+                                        Full Name
+                                    </label>
+                                    <input id="profileName" class="form-input profile-field-input" type="text" disabled
+                                        aria-label="Full name (read-only)" placeholder="Loading&hellip;">
+                                </div>
+
+                                <div class="profile-field form-group">
+                                    <label for="profileEmail" class="profile-field-label form-label">
+                                        <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+                                        Email Address
+                                    </label>
+                                    <input id="profileEmail" class="form-input profile-field-input" type="email"
+                                        disabled aria-label="Email address (read-only)" placeholder="Loading&hellip;">
+                                </div>
+
+                                <div class="profile-field form-group" style="grid-column:1/-1;">
+                                    <label for="profileId" class="profile-field-label form-label">
+                                        <i class="fa-solid fa-fingerprint" aria-hidden="true"></i>
+                                        User ID
+                                        <span
+                                            style="font-size:.7rem;font-weight:500;color:var(--text-tertiary);background:var(--bg-tertiary);padding:1px 6px;border-radius:4px;border:1px solid var(--border-subtle);">system</span>
+                                    </label>
+                                    <input id="profileId" class="form-input profile-field-input mono-id" type="text"
+                                        disabled aria-label="User ID (read-only)" placeholder="Loading&hellip;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Actions card -->
+                        <div class="profile-actions-card" role="region" aria-label="Account actions">
+                            <div class="profile-card-header">
+                                <div class="profile-card-icon"
+                                    style="background:linear-gradient(135deg,rgba(124,58,237,0.10),rgba(124,58,237,0.18));color:#7c3aed;"
+                                    aria-hidden="true">
+                                    <i class="fa-solid fa-sliders"></i>
+                                </div>
+                                <div>
+                                    <div class="profile-card-title">Account Actions</div>
+                                    <div class="profile-card-subtitle">Manage your account settings</div>
+                                </div>
+                            </div>
+
+                            <div class="profile-actions-grid">
+                                <button class="profile-action-btn primary-action" id="changePasswordBtn"
+                                    aria-label="Change password">
+                                    <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                                    Change Password
+                                </button>
+                                <button class="profile-action-btn" id="editProfileBtn" aria-label="Edit profile">
+                                    <i class="fa-solid fa-pen-to-square"></i>
+                                    Edit Profile
+                                </button>
+                            </div>
+                        </div>
+
+                    </div><!-- /.profile-right -->
+                </div><!-- /.profile-layout -->
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ================================================
+     KEYBOARD SHORTCUTS MODAL
+================================================ -->
+    <div id="shortcutsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="shortcutsTitle">Keyboard Shortcuts</h2>
+                <button id="closeShortcutsBtn" class="modal-close" aria-label="Close">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="shortcuts-grid">
+                    <div class="shortcut-item"><span>Dashboard</span> <kbd>Alt + 1</kbd></div>
+                    <div class="shortcut-item"><span>Add Transaction</span><kbd>Alt + 2</kbd></div>
+                    <div class="shortcut-item"><span>History</span> <kbd>Alt + 3</kbd></div>
+                    <div class="shortcut-item"><span>Goals</span> <kbd>Alt + 4</kbd></div>
+                    <div class="shortcut-item"><span>Insights</span> <kbd>Alt + 5</kbd></div>
+                    <div class="shortcut-item"><span>Toggle Dark Mode</span><kbd>Alt + D</kbd></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================
+     UPDATE GOAL PROGRESS MODAL
+================================================ -->
+    <div id="goalProgressModal" class="modal hidden" role="dialog" aria-modal="true"
+        aria-labelledby="goalProgressTitle">
+        <div class="modal-content" style="max-width:420px;">
+            <div class="modal-header">
+                <h2 id="goalProgressTitle">Update Progress</h2>
+                <button class="modal-close" id="closeProgressModalBtn" aria-label="Close">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="progressGoalId">
+
+                <div style="margin-bottom:var(--spacing-md);">
+                    <div style="font-size:.875rem;color:var(--text-secondary);margin-bottom:4px;" id="progressGoalName">
+                    </div>
+                    <div style="font-size:1.25rem;font-weight:700;font-family:var(--font-mono);color:var(--text-primary);"
+                        id="progressGoalSaved"></div>
+                </div>
+
+                <div class="progress-toggle-group">
+                    <button class="progress-toggle-btn active" id="progressToggleAdd">
+                        <i class="fa-solid fa-plus" aria-hidden="true"></i> Add Funds
+                    </button>
+                    <button class="progress-toggle-btn withdraw" id="progressToggleWithdraw">
+                        <i class="fa-solid fa-minus" aria-hidden="true"></i> Withdraw
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="progressAmount">Amount (₹)</label>
+                    <input type="number" id="progressAmount" class="form-input" placeholder="0.00" step="0.01"
+                        min="0.01" required aria-label="Amount to add or withdraw">
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn-primary" id="progressSubmitBtn">
+                        <i class="fa-solid fa-arrow-up-right-dots" aria-hidden="true"></i>
+                        Confirm
+                    </button>
+                    <button class="btn-secondary" id="cancelProgressBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================
+     GOAL PREDICTION DETAIL MODAL
+================================================ -->
+    <div id="goalPredictionModal" class="modal hidden" role="dialog" aria-modal="true"
+        aria-labelledby="predictionModalTitle">
+        <div class="modal-content" style="max-width:480px;">
+            <div class="modal-header">
+                <div>
+                    <h2 id="predictionModalTitle">Goal Forecast</h2>
+                    <p style="font-size:.8125rem;color:var(--text-tertiary);margin-top:2px;"
+                        id="predictionModalSubtitle"></p>
+                </div>
+                <button class="modal-close" id="closePredictionModalBtn" aria-label="Close">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="predictionModalBody">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================
+     EDIT TRANSACTION MODAL
+================================================ -->
+    <div id="editModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="editModalTitle">Edit Transaction</h2>
+                <button class="modal-close" id="closeEditModalBtn" aria-label="Close">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <input id="editDescription" class="form-input" type="text" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (₹)</label>
+                    <input id="editAmount" class="form-input" type="number" step="0.01" min="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="editType" class="form-select">
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select id="editCategory" class="form-select">
+                        <option value="Food">Food</option>
+                        <option value="Rent">Rent</option>
+                        <option value="Transport">Transport</option>
+                        <option value="Shopping">Shopping</option>
+                        <option value="Health">Health</option>
+                        <option value="Education">Education</option>
+                        <option value="Misc">Misc</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input id="editDate" class="form-input" type="date" required>
+                </div>
+                <div class="form-actions">
+                    <button class="btn-primary" id="saveEditBtn">
+                        <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save Changes
+                    </button>
+                    <button class="btn-secondary" id="cancelEditBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================
+     CHANGE PASSWORD MODAL
+================================================ -->
+    <div id="changePasswordModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="changePwTitle">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="changePwTitle">Change Password</h2>
+                <button class="modal-close" id="closeChangePwBtn" aria-label="Close">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="currentPassword">Current Password</label>
+                    <input type="password" id="currentPassword" class="form-input" placeholder="Enter current password"
+                        autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="newPassword">New Password</label>
+                    <input type="password" id="newPassword" class="form-input" placeholder="Min. 6 characters"
+                        autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="confirmPassword">Confirm New Password</label>
+                    <input type="password" id="confirmPassword" class="form-input" placeholder="Repeat new password"
+                        autocomplete="new-password">
+                </div>
+                <div class="form-actions">
+                    <button class="btn-primary" id="changePwBtn">
+                        <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                        Update Password
+                    </button>
+                    <button class="btn-secondary" id="cancelChangePwBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================
+     EDIT PROFILE MODAL
+================================================ -->
+    <div id="editProfileModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Profile</h2>
+                <button class="modal-close" id="closeEditProfileBtn">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" id="editProfileName" class="form-input">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" id="editProfileEmail" class="form-input">
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn-primary" id="saveProfileBtn">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        Save Changes
+                    </button>
+                    <button class="btn-secondary" id="cancelEditProfileBtn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================
+     SCRIPTS
+================================================ -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/navigation.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/transactions.js"></script>
+    <script src="/static/js/history.js"></script>
+    <script src="/static/js/goals.js"></script>
+    <script src="/static/js/insights.js"></script>
+    <script src="/static/js/profile.js"></script>
+    <script src="/static/js/app.js"></script>
+
+    <script src="/static/js/chatbot.js"></script>
+    <script src="/static/js/ai_insights.js"></script>
+    <script src="/static/js/roadmap.js"></script>
+    <!-- ================================================
+         AI CHAT WIDGET
+    ================================================ -->
+    <div id="chatToggle" class="chat-fab" aria-label="Open AI Assistant" title="Budgetly AI">
+        <div class="chat-fab-icon">
+            <i class="fa-solid fa-sparkles chat-fab-sparkle"></i>
+            <i class="fa-solid fa-xmark chat-fab-close"></i>
+        </div>
+        <div class="chat-fab-pulse"></div>
+    </div>
+
+    <div id="chatContainer" class="chat-panel hidden" role="dialog" aria-label="Budgetly AI Assistant">
+        <div class="chat-panel-header">
+            <div class="chat-panel-brand">
+                <div class="chat-panel-avatar">
+                    <i class="fa-solid fa-sparkles"></i>
+                </div>
+                <div class="chat-panel-title-group">
+                    <span class="chat-panel-title">Budgetly AI</span>
+                    <span class="chat-panel-status"><span class="chat-status-dot"></span>Online</span>
+                </div>
+            </div>
+            <button id="chatClose" class="chat-panel-close" aria-label="Close chat">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div id="chatMessages" class="chat-panel-messages">
+            <div class="chat-welcome">
+                <div class="chat-welcome-icon"><i class="fa-solid fa-chart-line"></i></div>
+                <p class="chat-welcome-text">Hi! I'm your AI finance assistant. Ask me about your spending, savings, or
+                    goals.</p>
+                <div class="chat-suggestions">
+                    <button class="chat-suggestion-chip" data-msg="Where am I overspending?">🔍 Overspending?</button>
+                    <button class="chat-suggestion-chip" data-msg="How much can I save?">💰 Savings tip</button>
+                    <button class="chat-suggestion-chip" data-msg="Can I afford a new goal?">🎯 New goal</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-panel-footer">
+            <div class="chat-input-row">
+                <input type="text" id="chatInput" class="chat-panel-input" placeholder="Ask about your finances…"
+                    autocomplete="off" />
+                <button id="chatSendBtn" class="chat-send-btn" aria-label="Send">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Event wiring: all scripts above are parsed, DOM is ready -->
+    <script>
+
+        async function loadRecurringSuggestions() {
+            const res = await fetch('/recurring-suggestions', {
+                credentials: 'include'
+            });
+
+            const data = await res.json();
+
+            if (!data.length) return;
+
+            data.forEach(item => {
+                showNotification(
+                    `You usually pay ₹${item.amount} for ${item.description}. Add it?`,
+                    'info',
+                    () => autoAddRecurring(item)
+                );
+            });
+        }
+
+        (function () {
+
+            // Bootstrap the app (initTheme, loadDashboard, etc.)
+            initApp();
+
+            // Sidebar navigation — wire data-target buttons
+            document.querySelectorAll('.nav-item[data-target]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    showPage(btn.dataset.target);
+                    // Trigger roadmap generation when roadmap tab is clicked
+                    if (btn.dataset.target === 'roadmap') {
+                        if (typeof loadRoadmap === 'function') loadRoadmap();
+                    }
+                });
+            });
+
+            // Theme & Logout
+            document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
+            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+            // Transaction form
+            document.getElementById('transactionForm').addEventListener('submit', submitTransaction);
+            document.getElementById('resetTxBtn').addEventListener('click', resetTransactionForm);
+
+            // History buttons
+            document.getElementById('importCsvBtn').addEventListener('click', () => document.getElementById('csvInput').click());
+            document.getElementById('csvInput').addEventListener('change', function () { importCSV(this); });
+            document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
+            document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
+            document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
+            document.getElementById('clearAllTxBtn').addEventListener('click', clearAllTransactions);
+
+            // Edit transaction modal
+            document.getElementById('closeEditModalBtn').addEventListener('click', closeEditModal);
+            document.getElementById('cancelEditBtn').addEventListener('click', closeEditModal);
+            document.getElementById('saveEditBtn').addEventListener('click', saveEdit);
+
+            // Goals buttons
+            document.getElementById('newGoalBtn').addEventListener('click', showGoalForm);
+            document.getElementById('cancelGoalBtn').addEventListener('click', hideGoalForm);
+            document.getElementById('createFirstGoalBtn').addEventListener('click', showGoalForm);
+            document.getElementById('goalForm').addEventListener('submit', addGoal);
+
+            // Progress modal
+            document.getElementById('closeProgressModalBtn').addEventListener('click', closeProgressModal);
+            document.getElementById('cancelProgressBtn').addEventListener('click', closeProgressModal);
+            document.getElementById('progressSubmitBtn').addEventListener('click', submitProgress);
+            document.getElementById('progressToggleAdd').addEventListener('click', () => setProgressAction('add'));
+            document.getElementById('progressToggleWithdraw').addEventListener('click', () => setProgressAction('withdraw'));
+
+            // Prediction modal
+            document.getElementById('closePredictionModalBtn').addEventListener('click', closePredictionModal);
+
+            // Shortcuts modal
+            document.getElementById('closeShortcutsBtn').addEventListener('click', () => {
+                document.getElementById('shortcutsModal').classList.add('hidden');
+            });
+
+            // Profile actions
+            document.getElementById('changePasswordBtn').addEventListener('click', openChangePasswordModal);
+            document.getElementById('editProfileBtn').addEventListener('click', openEditProfileModal);
+            document.getElementById('closeChangePwBtn').addEventListener('click', closeChangePasswordModal);
+            document.getElementById('cancelChangePwBtn').addEventListener('click', closeChangePasswordModal);
+            document.getElementById('changePwBtn').addEventListener('click', changePassword);
+            document.getElementById('closeEditProfileBtn').addEventListener('click', closeEditProfileModal);
+            document.getElementById('cancelEditProfileBtn').addEventListener('click', closeEditProfileModal);
+            document.getElementById('saveProfileBtn').addEventListener('click', saveProfileChanges);
+
+            // Insights tabs
+            document.querySelectorAll('.insights-tab[data-insight]').forEach(tab => {
+                tab.addEventListener('click', () => renderInsights(tab.dataset.insight));
+            });
+        }());
+
+        window.addEventListener('load', () => {
+            loadRecurringSuggestions();
+        });
+
+        async function autoAddRecurring(item) {
+            await fetch('/add-transaction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    description: item.description,
+                    amount: item.amount,
+                    type: 'expense'
+                })
+            });
+
+            showNotification('Recurring expense added!', 'success');
+            location.reload();
+        }
+    </script>
+
+</body>
+
+</html>

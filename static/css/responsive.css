@@ -1,0 +1,26 @@
+/* =============================================
+   RESPONSIVE — TABLET (≤1024px)
+============================================= */
+@media (max-width: 1024px) {
+    .sidebar { width: 220px; }
+    .main-content { padding: var(--spacing-xl); }
+}
+
+/* =============================================
+   RESPONSIVE — MOBILE (≤768px)
+============================================= */
+@media (max-width: 768px) {
+    .sidebar { position: fixed; left: -260px; z-index: 100; }
+    .stats-grid  { grid-template-columns: 1fr; }
+    .charts-grid { grid-template-columns: 1fr; }
+    .page-header { flex-direction: column; }
+    .insights-grid { grid-template-columns: 1fr; }
+    .filter-controls { gap: var(--spacing-sm); }
+}
+
+/* =============================================
+   RESPONSIVE — PROFILE (≤900px)
+============================================= */
+@media (max-width: 900px) {
+    .profile-layout { grid-template-columns: 1fr; }
+}

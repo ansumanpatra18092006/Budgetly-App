@@ -1,0 +1,66 @@
+description,amount,type,category,date
+Salary January,50000,income,Salary,2025-09-01
+Freelance Project,8000,income,Freelance,2025-09-10
+House Rent,12000,expense,Rent,2025-09-03
+Groceries,3200,expense,Food,2025-09-05
+Petrol,1800,expense,Transport,2025-09-08
+Electricity Bill,2100,expense,Utilities,2025-09-12
+Netflix Subscription,499,expense,Subscriptions,2025-09-15
+Shopping Mall,4500,expense,Shopping,2025-09-18
+Doctor Visit,1500,expense,Health,2025-09-22
+Dinner Out,1200,expense,Food,2025-09-25
+
+Salary February,50000,income,Salary,2025-10-01
+Bonus,5000,income,Bonus,2025-10-05
+House Rent,12000,expense,Rent,2025-10-03
+Groceries,3400,expense,Food,2025-10-06
+Petrol,2000,expense,Transport,2025-10-09
+Internet Bill,900,expense,Utilities,2025-10-12
+Amazon Shopping,6200,expense,Shopping,2025-10-16
+Gym Membership,1500,expense,Health,2025-10-18
+Movie Night,800,expense,Entertainment,2025-10-21
+Restaurant,1400,expense,Food,2025-10-25
+
+Salary March,50000,income,Salary,2025-11-01
+Freelance Website,12000,income,Freelance,2025-11-14
+House Rent,12000,expense,Rent,2025-11-03
+Groceries,3600,expense,Food,2025-11-06
+Petrol,2100,expense,Transport,2025-11-08
+Electricity Bill,2300,expense,Utilities,2025-11-12
+Shopping Clothes,8000,expense,Shopping,2025-11-15
+Health Checkup,3000,expense,Health,2025-11-18
+Trip Booking,10000,expense,Travel,2025-11-22
+Dinner,1300,expense,Food,2025-11-26
+
+Salary April,50000,income,Salary,2025-12-01
+Freelance App,9000,income,Freelance,2025-12-11
+House Rent,12000,expense,Rent,2025-12-03
+Groceries,3500,expense,Food,2025-12-06
+Petrol,2200,expense,Transport,2025-12-09
+Electricity Bill,2400,expense,Utilities,2025-12-12
+Laptop Purchase,45000,expense,Shopping,2025-12-15
+Medical,2000,expense,Health,2025-12-18
+Dinner,1500,expense,Food,2025-12-22
+Streaming Services,899,expense,Subscriptions,2025-12-27
+
+Salary May,52000,income,Salary,2026-01-01
+Freelance Fix,6000,income,Freelance,2026-01-09
+House Rent,12000,expense,Rent,2026-01-03
+Groceries,3700,expense,Food,2026-01-06
+Petrol,2100,expense,Transport,2026-01-08
+Internet Bill,950,expense,Utilities,2026-01-11
+Shopping,5200,expense,Shopping,2026-01-15
+Gym Membership,1500,expense,Health,2026-01-18
+Vacation Trip,15000,expense,Travel,2026-01-22
+Dinner,1600,expense,Food,2026-01-26
+
+Salary June,52000,income,Salary,2026-02-01
+Freelance Support,7000,income,Freelance,2026-02-10
+House Rent,12000,expense,Rent,2026-02-03
+Groceries,3800,expense,Food,2026-02-05
+Petrol,2300,expense,Transport,2026-02-08
+Electricity Bill,2500,expense,Utilities,2026-02-12
+Online Shopping,4800,expense,Shopping,2026-02-15
+Health Medicine,1200,expense,Health,2026-02-18
+Restaurant,1700,expense,Food,2026-02-22
+Concert Tickets,6000,expense,Entertainment,2026-02-25
