@@ -1075,15 +1075,14 @@ def _extract_pdf_text(file) -> str:
     text = ""
 
     with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
+        for i, page in enumerate(pdf.pages):
 
-            # 🔥 Try normal extraction
-            page_text = page.extract_text(x_tolerance=2, y_tolerance=2)
+            # 🔥 LIMIT pages (CRITICAL FIX)
+            if i >= 3:
+                break
 
-            # 🔥 Fallback (IMPORTANT)
-            if not page_text or len(page_text.strip()) < 50:
-                words = page.extract_words(x_tolerance=2, y_tolerance=2)
-                page_text = " ".join(w["text"] for w in words)
+            # 🔥 FAST extraction
+            page_text = page.extract_text(layout=False)
 
             if page_text:
                 text += page_text + "\n"
