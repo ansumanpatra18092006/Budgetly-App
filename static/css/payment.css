@@ -1,0 +1,472 @@
+/* ================================================================
+   payment.css  — Budgetly Payment Upgrade Styles
+   Add <link rel="stylesheet" href="/static/css/payment.css">
+   to index.html <head>.
+================================================================ */
+
+/* ── Overlay ───────────────────────────────────────────────────── */
+.pay-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    padding: 20px;
+    animation: payOverlayIn 220ms ease both;
+}
+
+.pay-overlay.hidden {
+    display: none !important;
+}
+
+@keyframes payOverlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* ── Sheet ─────────────────────────────────────────────────────── */
+.pay-sheet {
+    background: var(--bg-elevated, #1a1030);
+    border: 1px solid rgba(167, 139, 250, 0.18);
+    border-radius: 24px;
+    padding: 28px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow:
+        0 32px 80px rgba(0, 0, 0, 0.55),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+        0 1px 0 rgba(255, 255, 255, 0.10) inset;
+    animation: paySheetIn 340ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    position: relative;
+}
+
+.pay-sheet-sm { max-width: 420px; }
+
+@keyframes paySheetIn {
+    from { opacity: 0; transform: translateY(28px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* Enter transition for re-triggers */
+.preview-enter { animation: paySheetIn 300ms cubic-bezier(0.34,1.56,0.64,1) both; }
+
+/* ── Header ────────────────────────────────────────────────────── */
+.pay-sheet-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.pay-sheet-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #5b21b6, #7c3aed);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+    box-shadow: 0 4px 20px rgba(91, 33, 182, 0.45);
+}
+
+.pay-sheet-icon-upi {
+    background: linear-gradient(135deg, #0891b2, #0e7490);
+    box-shadow: 0 4px 20px rgba(8, 145, 178, 0.40);
+}
+
+.pay-sheet-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary, #f0e6ff);
+    margin: 0;
+}
+
+.pay-sheet-sub {
+    font-size: 0.8rem;
+    color: var(--text-tertiary, rgba(255,255,255,0.40));
+    margin: 2px 0 0;
+}
+
+.pay-close-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--text-tertiary, rgba(255,255,255,0.40));
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    transition: color 0.2s, background 0.2s;
+    flex-shrink: 0;
+}
+
+.pay-close-btn:hover {
+    color: var(--text-primary, #f0e6ff);
+    background: rgba(255,255,255,0.08);
+}
+
+/* ── Risk row ──────────────────────────────────────────────────── */
+.pay-risk-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.pay-risk-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.pay-warning-text {
+    font-size: 0.875rem;
+    color: var(--text-secondary, rgba(255,255,255,0.70));
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* ── Impact grid ───────────────────────────────────────────────── */
+.pay-impact-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.pay-impact-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.pay-impact-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-tertiary, rgba(255,255,255,0.40));
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: center;
+}
+
+.pay-impact-value {
+    font-size: 1rem;
+    font-weight: 800;
+    font-family: var(--font-mono, 'Fira Code', monospace);
+    color: var(--text-primary, #f0e6ff);
+    transition: color 0.3s;
+}
+
+/* ── Goal note ─────────────────────────────────────────────────── */
+.pay-goal-note {
+    font-size: 0.82rem;
+    color: var(--warning, #f59e0b);
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.20);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* ── Wallet chip ───────────────────────────────────────────────── */
+.pay-wallet-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--text-tertiary, rgba(255,255,255,0.50));
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 8px 14px;
+    margin-bottom: 20px;
+}
+
+.pay-wallet-chip i { color: var(--primary, #7c3aed); }
+
+.wallet-balance-display {
+    color: var(--text-primary, #f0e6ff);
+    font-family: var(--font-mono, monospace);
+    font-weight: 700;
+}
+
+.wallet-low  { color: var(--danger,  #ef4444) !important; }
+.wallet-ok   { color: var(--success, #10b981) !important; }
+
+/* ── Action buttons ────────────────────────────────────────────── */
+.pay-action-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.pay-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 16px 12px;
+    border: none;
+    border-radius: 16px;
+    cursor: pointer;
+    font-family: var(--font-sans, sans-serif);
+    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+
+.pay-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.12);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.pay-btn:hover:not(:disabled)::before { opacity: 1; }
+.pay-btn:hover:not(:disabled)   { transform: translateY(-3px); }
+.pay-btn:active:not(:disabled)  { transform: translateY(0); }
+
+.pay-btn:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+}
+
+.pay-btn i     { font-size: 1.3rem; color: #fff; }
+.pay-btn span  { font-size: 0.88rem; font-weight: 700; color: #fff; }
+.pay-btn small { font-size: 0.7rem;  color: rgba(255,255,255,0.65); font-weight: 400; }
+
+.pay-btn-wallet {
+    background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
+    box-shadow: 0 8px 28px rgba(91, 33, 182, 0.45);
+}
+
+.pay-btn-upi {
+    background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
+    box-shadow: 0 8px 28px rgba(8, 145, 178, 0.40);
+}
+
+.pay-btn-wallet:hover:not(:disabled) {
+    box-shadow: 0 12px 36px rgba(91, 33, 182, 0.60);
+}
+.pay-btn-upi:hover:not(:disabled) {
+    box-shadow: 0 12px 36px rgba(8, 145, 178, 0.55);
+}
+
+.pay-cancel-text {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text-tertiary, rgba(255,255,255,0.40));
+    font-size: 0.82rem;
+    text-align: center;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    transition: color 0.2s;
+    font-family: var(--font-sans, sans-serif);
+}
+.pay-cancel-text:hover { color: var(--danger, #ef4444); }
+
+/* ── UPI confirm ───────────────────────────────────────────────── */
+.upi-confirm-summary {
+    text-align: center;
+    padding: 20px 0 24px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    margin-bottom: 20px;
+}
+
+.upi-confirm-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary, rgba(255,255,255,0.40));
+    margin-bottom: 4px;
+}
+
+.upi-confirm-amount {
+    font-size: 2.2rem;
+    font-weight: 800;
+    font-family: var(--font-mono, monospace);
+    color: var(--primary, #7c3aed);
+    margin-bottom: 6px;
+}
+
+.upi-confirm-desc {
+    font-size: 0.9rem;
+    color: var(--text-secondary, rgba(255,255,255,0.65));
+}
+
+/* ── Top-up extras ─────────────────────────────────────────────── */
+.topup-balance-row {
+    font-size: 0.85rem;
+    color: var(--text-tertiary, rgba(255,255,255,0.50));
+    background: rgba(255,255,255,0.04);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.topup-quick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.topup-quick-label {
+    font-size: 0.78rem;
+    color: var(--text-tertiary, rgba(255,255,255,0.40));
+    flex-shrink: 0;
+}
+
+.topup-quick-chip {
+    background: rgba(124, 58, 237, 0.15);
+    border: 1px solid rgba(124, 58, 237, 0.30);
+    color: var(--primary, #a78bfa);
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s, transform 0.18s;
+    font-family: var(--font-sans, sans-serif);
+}
+.topup-quick-chip:hover {
+    background: rgba(124, 58, 237, 0.28);
+    transform: scale(1.05);
+}
+
+/* ── Wallet history list ───────────────────────────────────────── */
+.wallet-history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    list-style: none;
+    animation: staggerIn 0.32s var(--ease-spring, ease) both;
+}
+
+.wallet-history-loading {
+    color: var(--text-tertiary, rgba(255,255,255,0.40));
+    padding: 20px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+/* ── Wallet widget (dashboard card area) ───────────────────────── */
+.wallet-widget {
+    background: linear-gradient(135deg, #0f0720 0%, #1a0a3a 50%, #0d1f3c 100%);
+    border: 1px solid rgba(124, 58, 237, 0.25);
+    border-radius: 20px;
+    padding: 22px;
+    position: relative;
+    overflow: hidden;
+}
+
+.wallet-widget::before {
+    content: '';
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    top: -60px; right: -60px;
+    background: radial-gradient(circle, rgba(124,58,237,0.22) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.wallet-widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.wallet-widget-label {
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    color: rgba(167, 139, 250, 0.80);
+}
+
+.wallet-widget-balance {
+    font-size: 2rem;
+    font-weight: 800;
+    font-family: var(--font-mono, monospace);
+    color: #fff;
+    letter-spacing: -0.03em;
+    margin-bottom: 18px;
+}
+
+.wallet-widget-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.wallet-action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 10px 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.85);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-sans, sans-serif);
+}
+
+.wallet-action-btn:hover {
+    background: rgba(255,255,255,0.13);
+    border-color: rgba(255,255,255,0.22);
+    transform: translateY(-2px);
+}
+
+/* ── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+    .pay-sheet { padding: 20px 16px; border-radius: 20px; }
+    .pay-impact-grid { grid-template-columns: 1fr 1fr; }
+    .pay-action-row { flex-direction: column; }
+    .pay-btn { flex-direction: row; padding: 14px 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pay-overlay, .pay-sheet, .pay-btn { animation: none !important; transition: none !important; }
+}

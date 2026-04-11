@@ -210,7 +210,7 @@ def top_categories():
     result = [
         {
             "category": r["category"],
-            "amount":   r["total"],
+            "amount":   float(r["total"]),
             "percent":  round((r["total"] / grand_total) * 100),
         }
         for r in rows

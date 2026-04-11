@@ -12,6 +12,7 @@ async function loadDashboard() {
         loadBalanceTrend(),
     ]);
     await loadAllAIFeatures();   // ← ADD THIS LINE
+    print("GOALS RAW RESPONSE: $goalMaps");
 }
 
 async function fetchSummary() {
@@ -20,10 +21,10 @@ async function fetchSummary() {
 
     try {
         const data = await res.json();
-        const d    = data.data ?? data;
+        const d = data.data ?? data;
 
         currentSummary = { income: d.income ?? 0, expense: d.expense ?? 0, balance: d.balance ?? 0 };
-        animateValue('income',  currentSummary.income);
+        animateValue('income', currentSummary.income);
         animateValue('expense', currentSummary.expense);
         animateValue('balance', currentSummary.balance);
     } catch (e) {
@@ -36,8 +37,8 @@ async function fetchBudget() {
     if (!res) return;
 
     try {
-        const data   = await res.json();
-        const d      = data.data ?? data;
+        const data = await res.json();
+        const d = data.data ?? data;
         const budget = d.budget ?? 0;
 
         const input = document.getElementById('budgetInput');
@@ -84,24 +85,24 @@ async function loadHealth() {
 
     try {
         const data = await res.json();
-        const d    = data.data ?? data;
+        const d = data.data ?? data;
 
         const score = d.health_score ?? 0;
-        const sr    = d.savings_rate     ?? 0;
-        const ba    = d.budget_adherence ?? 0;
-        const is_   = d.income_stability ?? 0;
+        const sr = d.savings_rate ?? 0;
+        const ba = d.budget_adherence ?? 0;
+        const is_ = d.income_stability ?? 0;
 
-        setEl('healthScore',       score);
-        setEl('healthLabel',       getHealthLabel(score));
+        setEl('healthScore', score);
+        setEl('healthLabel', getHealthLabel(score));
         const circle = document.querySelector('.score-circle');
         if (circle) circle.style.setProperty('--score', Math.min(score, 100));
-        setEl('savingsRate',       sr + '%');
-        setEl('budgetAdherence',   ba + '%');
-        setEl('incomeStability',   is_ + '%');
+        setEl('savingsRate', sr + '%');
+        setEl('budgetAdherence', ba + '%');
+        setEl('incomeStability', is_ + '%');
 
         setWidth('savingsBar', Math.min(sr, 100));
-        setWidth('budgetBar',  Math.min(ba, 100));
-        setWidth('incomeBar',  Math.min(is_, 100));
+        setWidth('budgetBar', Math.min(ba, 100));
+        setWidth('incomeBar', Math.min(is_, 100));
     } catch (e) {
         console.error('loadHealth parse error', e);
     }
@@ -141,9 +142,9 @@ async function loadBalanceTrend() {
     if (!res) return;
 
     try {
-        const data    = await res.json();
-        const d       = data.data ?? data;
-        const change  = d.change ?? 0;
+        const data = await res.json();
+        const d = data.data ?? data;
+        const change = d.change ?? 0;
         const trendEl = document.querySelector('.stat-balance .stat-trend');
         if (!trendEl) return;
 
@@ -202,9 +203,9 @@ async function loadCategoryChart() {
                 datasets: [{
                     data: values,
                     backgroundColor: [
-                        '#2563eb','#059669','#d97706','#dc2626',
-                        '#8b5cf6','#64748b','#0891b2','#be185d',
-                        '#f59e0b','#10b981','#ef4444','#6366f1'
+                        '#2563eb', '#059669', '#d97706', '#dc2626',
+                        '#8b5cf6', '#64748b', '#0891b2', '#be185d',
+                        '#f59e0b', '#10b981', '#ef4444', '#6366f1'
                     ],
                     borderWidth: 2
                 }]
@@ -237,17 +238,17 @@ async function renderTrendChart() {
         trendChartInstance = new Chart(ctx, {
             type: 'line',
             data: {
-                labels:   data.months ?? [],
+                labels: data.months ?? [],
                 datasets: [
-                    { label: 'Income',  data: data.income  ?? [], borderColor: '#059669', backgroundColor: 'rgba(5,150,105,0.1)',  tension: 0.4, fill: true, pointRadius: 4, pointHoverRadius: 6 },
-                    { label: 'Expense', data: data.expense ?? [], borderColor: '#dc2626', backgroundColor: 'rgba(220,38,38,0.1)',  tension: 0.4, fill: true, pointRadius: 4, pointHoverRadius: 6 },
+                    { label: 'Income', data: data.income ?? [], borderColor: '#059669', backgroundColor: 'rgba(5,150,105,0.1)', tension: 0.4, fill: true, pointRadius: 4, pointHoverRadius: 6 },
+                    { label: 'Expense', data: data.expense ?? [], borderColor: '#dc2626', backgroundColor: 'rgba(220,38,38,0.1)', tension: 0.4, fill: true, pointRadius: 4, pointHoverRadius: 6 },
                 ],
             },
             options: {
-                responsive:          true,
+                responsive: true,
                 maintainAspectRatio: false,
-                interaction:         { mode: 'index', intersect: false },
-                plugins:             { legend: { position: 'top' } },
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top' } },
                 scales: {
                     y: { ticks: { callback: v => '₹' + Number(v).toLocaleString('en-IN') } },
                 },

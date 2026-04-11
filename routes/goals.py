@@ -23,6 +23,8 @@ from flask import Blueprint, jsonify, request, session
 from utils.db import get_db
 from utils.decorators import login_required
 from routes.ai_insights import _fetch_full_metrics
+from ml.anomaly_model import detect_anomalies
+from ml.forecast_model import predict_next_month
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,386 @@ def _get_monthly_cash_flow(conn, user_id: int):
 
     return avg_income, avg_expense, volatility
 
+# ════════════════════════════════════════════════════════════════
+# POST /generate-roadmap
+# ════════════════════════════════════════════════════════════════
+def generate_roadmap_handler():
+    """
+    Unified intelligent roadmap generator.
+ 
+    Integrates: risk analysis, goal progress, anomalies, ML forecast.
+ 
+    Request body:
+        { "goal_id": <int> }
+ 
+    Response adds (on top of existing fields):
+        - risk_summary        : current financial risk context
+        - anomaly_warning     : if irregular spending detected
+        - forecast_note       : ML-based next-month expense forecast
+        - goal_urgency        : "critical" | "urgent" | "on_track"
+        - monthly_plan        : per-month savings breakdown
+        - behavioral_notes    : context-aware advice from behavioral data
+    """
+    user_id = session["user_id"]
+    data    = request.get_json(silent=True) or {}
+ 
+    goal_id_raw = data.get("goal_id")
+    if goal_id_raw is None:
+        return jsonify({"error": "goal_id is required"}), 400
+ 
+    try:
+        goal_id = int(goal_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "goal_id must be an integer"}), 400
+ 
+    conn = get_db()
+    try:
+        goal_row = conn.execute("""
+            SELECT id, name, target_amount, saved_amount, category, target_date
+            FROM goals WHERE id=? AND user_id=?
+        """, (goal_id, user_id)).fetchone()
+ 
+        if not goal_row:
+            return jsonify({"error": "Goal not found"}), 404
+ 
+        # ── Unified metrics (includes goal_pressure, combined_risk) ──
+        metrics = _fetch_full_metrics(conn, user_id)
+ 
+        # ── Monthly cash flow ─────────────────────────────────────
+        avg_income, avg_expense, volatility = _get_monthly_cash_flow(conn, user_id)
+ 
+        # ── All expense history for anomaly detection + forecast ──
+        expense_hist = conn.execute("""
+            SELECT strftime('%Y-%m', date) AS month, SUM(amount) AS total
+            FROM transactions WHERE user_id=? AND type='expense'
+            GROUP BY month ORDER BY month ASC
+        """, (user_id,)).fetchall()
+ 
+        # ── Anomaly check (individual transactions) ───────────────
+        tx_amounts = conn.execute("""
+            SELECT amount FROM transactions
+            WHERE user_id=? AND type='expense' ORDER BY date ASC
+        """, (user_id,)).fetchall()
+ 
+    finally:
+        conn.close()
+ 
+    goal = dict(goal_row)
+ 
+    saved     = float(goal["saved_amount"]  or 0)
+    target    = float(goal["target_amount"] or 0)
+    remaining = max(target - saved, 0.0)
+    pct_done  = round(saved / target * 100, 1) if target > 0 else 0.0
+ 
+    # ════════════════════════════════════════════════════════════
+    # ANOMALY DETECTION
+    # ════════════════════════════════════════════════════════════
+    anomaly_warning = None
+    try:
+        from ml.anomaly_model import detect_anomalies
+        amounts   = [float(r["amount"]) for r in tx_amounts]
+        anomalies = detect_anomalies(amounts) if len(amounts) > 5 else []
+        if len(anomalies) >= 2:
+            anomaly_warning = (
+                f"Irregular spending detected in {len(anomalies)} recent transactions. "
+                "Consider stabilising expenses before aggressive goal contributions."
+            )
+    except Exception:
+        pass
+ 
+    # ════════════════════════════════════════════════════════════
+    # ML FORECAST
+    # ════════════════════════════════════════════════════════════
+    forecast_note     = None
+    forecast_expense  = None
+    try:
+        from ml.forecast_model import predict_next_month
+        monthly_expenses = [float(r["total"]) for r in expense_hist if r["total"]]
+        if len(monthly_expenses) >= 3:
+            forecast_expense = predict_next_month(monthly_expenses)
+            budget = metrics.get("budget", 0)
+            if budget > 0 and forecast_expense > budget:
+                forecast_note = (
+                    f"Next month's expenses are forecast at ₹{int(forecast_expense)}, "
+                    f"which exceeds your budget of ₹{int(budget)}. "
+                    "Plan your goal contributions conservatively."
+                )
+            elif forecast_expense > avg_expense * 1.2:
+                forecast_note = (
+                    f"Expenses are trending up (forecast: ₹{int(forecast_expense)}). "
+                    "Building a buffer now protects your goal contributions."
+                )
+    except Exception:
+        pass
+ 
+    # ════════════════════════════════════════════════════════════
+    # MONTHLY CAPACITY
+    # ════════════════════════════════════════════════════════════
+    surplus_live     = float(metrics.get("surplus", 0))
+    avg_monthly_flow = max(0.0, avg_income - avg_expense)
+    monthly_capacity = (
+        surplus_live if surplus_live > 0
+        else avg_monthly_flow if avg_monthly_flow > 0
+        else max(target * 0.05, 1000.0)
+    )
+ 
+    # ════════════════════════════════════════════════════════════
+    # RISK & DIFFICULTY (now uses combined_risk + goal_pressure)
+    # ════════════════════════════════════════════════════════════
+    savings_rate     = float(metrics.get("savings_rate",    0))
+    budget_used_pct  = float(metrics.get("budget_used_pct", 0))
+    expense_change   = float(metrics.get("expense_change",  0))
+    goal_pressure    = float(metrics.get("goal_pressure",   0))
+    combined_risk    = metrics.get("combined_risk", "low")
+    top_cat          = metrics.get("top_cat_name", "spending")
+    top_pct          = float(metrics.get("top_cat_pct", 0))
+    income           = float(metrics.get("income", 0))
+    expense          = float(metrics.get("expense", 0))
+    daily_burn       = float(metrics.get("daily_burn", 0))
+ 
+    # Difficulty incorporates combined risk and goal pressure
+    if combined_risk == "high" or monthly_capacity <= 0 or savings_rate < 5:
+        difficulty = "Hard"
+    elif combined_risk == "medium" or goal_pressure > 60 or budget_used_pct > 70:
+        difficulty = "Medium"
+    else:
+        difficulty = "Easy"
+ 
+    # ════════════════════════════════════════════════════════════
+    # GOAL URGENCY (NEW)
+    # ════════════════════════════════════════════════════════════
+    target_date     = goal.get("target_date")
+    months_required = None
+    required_monthly = None
+ 
+    if target_date:
+        try:
+            target_dt       = datetime.strptime(target_date, "%Y-%m-%d")
+            today           = datetime.today()
+            deadline_months = max(1, (target_dt.year - today.year) * 12 + (target_dt.month - today.month))
+            months_required  = deadline_months
+            required_monthly = round(remaining / deadline_months, 2) if deadline_months > 0 else None
+        except (ValueError, TypeError):
+            pass
+ 
+    if months_required is None:
+        if monthly_capacity > 0 and remaining > 0:
+            months_required  = round(remaining / monthly_capacity, 1)
+            required_monthly = monthly_capacity
+ 
+    monthly_savings_needed = required_monthly if required_monthly is not None else monthly_capacity
+ 
+    # Urgency classification
+    if months_required and months_required <= 2:
+        goal_urgency = "critical"
+    elif goal_pressure > 70 or (required_monthly and required_monthly > monthly_capacity * 1.2):
+        goal_urgency = "urgent"
+    else:
+        goal_urgency = "on_track"
+ 
+    # ════════════════════════════════════════════════════════════
+    # MONTHLY PLAN (detailed per-month breakdown — NEW)
+    # ════════════════════════════════════════════════════════════
+    num_phases = min(int(months_required or 6), 12)
+    num_phases = max(num_phases, 1)
+ 
+    save_per_phase = remaining / num_phases if num_phases else remaining
+    today_dt = datetime.today()
+ 
+    monthly_plan = []
+    cumulative_saved = saved
+    for i in range(num_phases):
+        month_dt = today_dt + timedelta(days=30 * (i + 1))
+        month_label = month_dt.strftime("%b %Y")
+        cumulative_saved = min(cumulative_saved + save_per_phase, target)
+        progress = round(cumulative_saved / target * 100, 1) if target > 0 else 0
+ 
+        monthly_plan.append({
+            "month":           month_label,
+            "month_number":    i + 1,
+            "save_target":     round(monthly_savings_needed, 2),
+            "cumulative_saved": round(cumulative_saved, 2),
+            "progress_pct":    progress,
+            "is_milestone":    (i + 1) in [
+                num_phases // 4, num_phases // 2, num_phases * 3 // 4, num_phases
+            ],
+        })
+ 
+    # ════════════════════════════════════════════════════════════
+    # PHASES (action steps, enhanced with risk & goal context)
+    # ════════════════════════════════════════════════════════════
+    _ACTION_POOL = [
+        [
+            f"Review {top_cat} transactions — currently {top_pct:.0f}% of spend",
+            f"Set daily cap of ₹{int(daily_burn * 0.9):,} (10% below burn rate)",
+            f"Automate ₹{int(monthly_savings_needed):,}/month to this goal",
+            "Pause unused subscriptions for 90 days",
+        ],
+        [
+            f"Reduce {top_cat} by 10–15% to free ₹{int(expense * top_pct / 100 * 0.12):,}",
+            "Batch purchases to eliminate impulse spending",
+            f"Confirm ₹{int(monthly_savings_needed):,} transferred this month",
+        ],
+        [
+            "Redirect cashback, rewards, and windfalls to this goal",
+            f"Stretch save to ₹{int(monthly_savings_needed * 1.1):,} by cutting one luxury",
+            "Renegotiate recurring bills for better rates",
+        ],
+        [
+            "Maintain pace — discipline compounds in final months",
+            "If ahead: top up early to close the gap",
+            "If behind: pause discretionary spending for 2 weeks",
+        ],
+    ]
+ 
+    _TIPS = [
+        "Open a dedicated savings account to ring-fence this goal.",
+        f"A 15% cut in {top_cat} alone could accelerate your timeline significantly.",
+        "Windfalls (bonuses, gifts, refunds) should go straight to the goal.",
+        "Visualising the completed goal daily sharpens motivation.",
+        "Keep the habit alive after this goal — momentum is the real prize.",
+    ]
+ 
+    phases = []
+    for i in range(num_phases):
+        action_set = _ACTION_POOL[i % len(_ACTION_POOL)]
+        tip        = _TIPS[i % len(_TIPS)]
+        plan_entry = monthly_plan[i] if i < len(monthly_plan) else {}
+ 
+        phases.append({
+            "title":          f"Month {i + 1}",
+            "month_label":    plan_entry.get("month", f"Month {i + 1}"),
+            "target_savings": round(monthly_savings_needed, 2),
+            "milestone":      plan_entry.get("cumulative_saved", 0),
+            "progress_pct":   plan_entry.get("progress_pct", 0),
+            "actions":        action_set,
+            "tip":            tip,
+            "is_milestone":   plan_entry.get("is_milestone", False),
+        })
+ 
+    # ════════════════════════════════════════════════════════════
+    # QUICK WINS
+    # ════════════════════════════════════════════════════════════
+    quick_wins = [
+        f"Cut {top_cat} spending by 10% — saves ~₹{int(expense * top_pct / 100 * 0.10):,} this month",
+        f"Automate ₹{int(monthly_savings_needed):,}/month transfer today",
+        "Track every expense for 7 days to surface hidden leaks",
+    ]
+    if savings_rate < 15:
+        quick_wins.append(f"Raise savings rate from {savings_rate:.0f}% to 20%")
+    if budget_used_pct > 75:
+        quick_wins.append("Cancel any subscription unused in the last 30 days")
+    if anomaly_warning:
+        quick_wins.append("Investigate and eliminate the irregular spending transactions")
+ 
+    # ════════════════════════════════════════════════════════════
+    # RISKS (enriched with goal pressure + forecast)
+    # ════════════════════════════════════════════════════════════
+    risks = []
+ 
+    if combined_risk == "high":
+        risks.append(f"Overall financial risk is HIGH — goal contributions are at risk")
+    if monthly_capacity <= 0:
+        risks.append("Current expenses exceed income — no savings headroom without cuts")
+    if savings_rate < 10:
+        risks.append(f"Savings rate {savings_rate:.0f}% — below the 10% minimum")
+    if budget_used_pct > 80:
+        risks.append(f"Budget at {budget_used_pct:.0f}% — overspend risk is elevated")
+    if expense_change > 20:
+        risks.append(f"Expenses rose {expense_change:.0f}% vs last month")
+    if required_monthly and monthly_capacity > 0 and required_monthly > monthly_capacity:
+        risks.append(
+            f"Needed ₹{int(required_monthly):,}/mo exceeds capacity ₹{int(monthly_capacity):,} — deadline may slip"
+        )
+    if goal_pressure > 70:
+        risks.append(f"High goal pressure ({goal_pressure:.0f}/100) — multiple goals competing for limited surplus")
+    if volatility > monthly_capacity * 0.4:
+        risks.append("Irregular spending detected — build a buffer before aggressive saving")
+    if forecast_expense and expense > 0 and forecast_expense > expense * 1.15:
+        risks.append(f"Expenses forecast to rise to ₹{int(forecast_expense):,} next month")
+ 
+    if not risks:
+        risks.append("No major risks detected — maintain current discipline")
+ 
+    # ════════════════════════════════════════════════════════════
+    # BEHAVIORAL NOTES (NEW — context-aware from patterns)
+    # ════════════════════════════════════════════════════════════
+    behavioral_notes = []
+    if top_pct > 40:
+        behavioral_notes.append(
+            f"{top_cat} dominates your spending at {top_pct:.0f}%. "
+            "Creating a dedicated sub-budget for this category will protect goal contributions."
+        )
+    if expense_change > 20:
+        behavioral_notes.append(
+            f"Your spending increased {expense_change:.0f}% last month. "
+            "Review what changed and correct before it becomes a habit."
+        )
+    if goal_urgency == "critical":
+        behavioral_notes.append(
+            "Goal deadline is very close. Treat goal contributions as a non-negotiable expense — pay yourself first."
+        )
+ 
+    # ════════════════════════════════════════════════════════════
+    # MOTIVATION + SUMMARY
+    # ════════════════════════════════════════════════════════════
+    months_display = (
+        f"{months_required:.0f} month{'s' if months_required != 1 else ''}"
+        if months_required else "some time"
+    )
+ 
+    motivation = (
+        f"You are ₹{int(remaining):,} away from '{goal['name']}'. "
+        f"Saving ₹{int(monthly_savings_needed):,}/month will reach it in {months_display}. "
+        f"You've already saved {pct_done:.0f}% — keep going!"
+    )
+ 
+    summary = (
+        f"Save ₹{int(monthly_savings_needed):,}/month to reach "
+        f"'{goal['name']}' (₹{int(target):,}) in about {months_display}."
+    )
+ 
+    # ── Risk summary (NEW) ───────────────────────────────────────
+    risk_summary = {
+        "combined_risk":  combined_risk,
+        "goal_pressure":  goal_pressure,
+        "savings_rate":   savings_rate,
+        "budget_used":    budget_used_pct,
+        "label": (
+            "Your finances are under pressure — prioritise stabilisation before this goal."
+            if combined_risk == "high" else
+            "Manageable risk. Stay disciplined with the monthly plan."
+            if combined_risk == "medium" else
+            "Healthy financial position — ideal conditions to reach this goal."
+        )
+    }
+ 
+    return jsonify({
+        # ── Core (Flutter-compatible) ─────────────────────────
+        "difficulty":             difficulty,
+        "months_required":        months_required,
+        "monthly_savings_needed": round(monthly_savings_needed, 2),
+        "remaining_amount":       round(remaining, 2),
+        "phases":                 phases,
+        "quick_wins":             quick_wins,
+        "risks":                  risks,
+        "motivation":             motivation,
+        "summary":                summary,
+        "strategy": (
+            "aggressive"   if required_monthly and required_monthly > monthly_capacity else
+            "conservative" if budget_used_pct > 80 else
+            "balanced"
+        ),
+        # ── Enhanced intelligence (NEW) ───────────────────────
+        "goal_urgency":      goal_urgency,
+        "risk_summary":      risk_summary,
+        "monthly_plan":      monthly_plan,
+        "behavioral_notes":  behavioral_notes,
+        "anomaly_warning":   anomaly_warning,
+        "forecast_note":     forecast_note,
+        "goal_pressure":     goal_pressure,
+        "pct_done":          pct_done,
+    })
 
 def _build_prediction(
     saved: float,

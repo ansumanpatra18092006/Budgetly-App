@@ -45,31 +45,54 @@ conversation_memory: dict[int, list[dict]] = {}
 # Intent detection  (unchanged)
 # ─────────────────────────────────────────────────────────────────
 
-_INTENT_MAP: list[tuple[str, list[str]]] = [
-    ("affordability", ["afford", "can i buy", "can i get", "enough to buy",
-                       "can i spend", "is it okay to buy", "should i buy"]),
-    ("saving_advice", ["save more", "how to save", "saving tips", "increase savings",
-                       "save faster", "better at saving"]),
-    ("goal_status",   ["goal", "target", "milestone", "on track", "how long",
-                       "when will i", "reach my goal"]),
-    ("overspending",  ["overspend", "spending too much", "why so much",
-                       "where is my money", "where does my money go"]),
-    ("reduce_spend",  ["reduce", "cut", "lower", "decrease", "trim",
-                       "spend less", "save on"]),
-    ("budget_status", ["budget", "limit", "how much left", "remaining budget",
-                       "budget status"]),
-    ("investment",    ["invest", "mutual fund", "stocks", "sip", "fd",
-                       "fixed deposit", "where to put"]),
-    ("summary",       ["summary", "overview", "how am i doing", "financial health",
-                       "my finances", "overall"]),
+_INTENT_MAP = [
+    ("affordability", [
+        "afford", "can i buy", "can i afford", "can i get",
+        "is it okay to buy", "should i buy"
+    ]),
+
+    ("saving_advice", [
+        "save", "saving", "saving tips", "how to save"
+    ]),
+
+    ("goal_status", [
+        "goal", "new goal", "target", "milestone"
+    ]),
+
+    ("overspending", [
+        "overspend", "overspending", "spending too much"
+    ]),
+
+    ("reduce_spend", [
+        "reduce", "cut", "spend less"
+    ]),
+
+    ("budget_status", [
+        "budget", "remaining budget", "how much left"
+    ]),
+
+    ("investment", [
+        "invest", "sip", "fd", "stocks"
+    ]),
+
+    ("summary", [
+        "summary", "overview", "financial health"
+    ]),
 ]
 
 
 def _detect_intent(message: str) -> str:
     msg = message.lower()
+
+    # normalize text
+    msg = re.sub(r"[^\w\s]", " ", msg)
+    msg = re.sub(r"\s+", " ", msg).strip()
+
     for intent, keywords in _INTENT_MAP:
-        if any(kw in msg for kw in keywords):
-            return intent
+        for kw in keywords:
+            if kw in msg:
+                return intent
+
     return "general"
 
 
@@ -273,61 +296,68 @@ def _fast_path(intent: str, a: dict) -> str | None:
 def _build_prompt(a: dict, intent: str, message: str) -> str:
     goals_text = ""
     for g in a["goals_summary"]:
-        mths = f", ~{g['months_away']} months away" if g["months_away"] else ""
-        goals_text += f"  {g['name']}: {g['pct']:.0f}% done (₹{g['saved']:,}/₹{g['target']:,}{mths})\n"
+        mths = f", about {g['months_away']} months away" if g["months_away"] else ""
+        goals_text += f"{g['name']}: {g['pct']:.0f}% done (₹{g['saved']:,}/₹{g['target']:,}{mths})\n"
     if not goals_text:
-        goals_text = "  None set.\n"
+        goals_text = "No active goals.\n"
 
     intent_task = {
         "saving_advice": (
-            f"The user wants to save more. Their savings rate is {a['savings_rate']:.0f}% "
-            f"(target: 20%+). Top spend is {a['top_cat']} at {a['top_pct']:.0f}%. "
-            f"Give 1 specific, actionable saving tip using their real numbers."
+            f"The user wants to improve savings. Their savings rate is {a['savings_rate']:.0f}% "
+            f"and their highest spending category is {a['top_cat']} ({a['top_pct']:.0f}%). "
+            f"Give one practical way to reduce spending and increase savings."
         ),
         "investment": (
-            f"The user wants to invest their ₹{int(a['surplus']):,}/month surplus. "
-            f"Suggest 1–2 beginner-friendly Indian investment options (SIP, FD, etc.) "
-            f"with realistic, brief guidance."
+            f"The user has a monthly surplus of ₹{int(a['surplus']):,}. "
+            f"Suggest a simple and realistic way to invest this amount for a beginner in India."
         ),
         "general": (
-            "Answer the user's question using their real financial data. "
-            "Be direct and specific. Do not give generic advice."
+            "Answer the user's question using their real financial data clearly and practically."
         ),
-    }.get(intent, "Answer the user's question using their real financial data. Be direct and specific.")
+    }.get(intent, "Answer using the user's financial data in a clear and practical way.")
 
-    return f"""You are Budgetly AI — a smart, friendly personal finance assistant for Indian users.
+    return f"""
+You are Budgetly AI, a smart and practical personal finance assistant.
 
-REPLY FORMAT (follow exactly — 3 sentences, no more, no less):
-  Sentence 1 — Observation: State one clear insight about the user's finances using their real numbers.
-  Sentence 2 — Action:      Tell the user one specific action they can take immediately.
-  Sentence 3 — Benefit:     Explain the positive result of that action in ₹ or percentage.
+Your job is to give short, clear, and useful financial advice based ONLY on the user's real data.
 
-RULES:
-- Exactly 3 sentences. Never fewer, never more.
-- Plain, simple English. No financial jargon.
-- No bullet points, no lists, no markdown, no labels like "Observation:".
-- Use ₹ for all amounts. Never $.
-- Use only the numbers provided below — never invent figures.
+IMPORTANT RULES:
+- Write EXACTLY 3 sentences.
+- Do NOT use labels like Observation, Action, or Benefit.
+- Use simple, natural English (like explaining to a friend).
+- Be specific and practical, not generic.
+- Use ₹ for money values.
+- Never invent numbers — only use the data given below.
 
-USER'S FINANCIAL DATA (already calculated — use these directly):
-  Income:         ₹{int(a['income']):,}
-  Expenses:       ₹{int(a['expense']):,}
-  Surplus:        ₹{int(a['surplus']):,}
-  Savings rate:   {a['savings_rate']:.0f}% — {a['savings_verdict']}
-  Budget used:    {a['budget_used_pct']:.0f}% — {a['budget_verdict']}, ₹{a['budget_left']:,.0f} left
-  Spending trend: {a['trend']}
-  Top category:   {a['top_cat']} = {a['top_pct']:.0f}% of expenses = ₹{a['top_cat_amount']:,}
-  10% cut saves:  ₹{a['top_cat_cut_10']:,}/month
-  15% cut saves:  ₹{a['top_cat_cut_15']:,}/month
-  Safe to spend:  ₹{a['safe_spend_40']:,} comfortably
+USER FINANCIAL DATA:
+Income: ₹{int(a['income']):,}
+Expenses: ₹{int(a['expense']):,}
+Surplus: ₹{int(a['surplus']):,}
+Savings rate: {a['savings_rate']:.0f}% ({a['savings_verdict']})
+Budget used: {a['budget_used_pct']:.0f}% ({a['budget_verdict']}) with ₹{a['budget_left']:,.0f} left
+Spending trend: {a['trend']}
+Top spending: {a['top_cat']} ({a['top_pct']:.0f}%) = ₹{a['top_cat_amount']:,}
+10% cut saves: ₹{a['top_cat_cut_10']:,}
+15% cut saves: ₹{a['top_cat_cut_15']:,}
+Safe spend amount: ₹{a['safe_spend_40']:,}
 
 GOALS:
 {goals_text}
-TASK: {intent_task}
 
-User said: "{message}"
+TASK:
+{intent_task}
 
-Your reply (exactly 3 sentences — Observation, Action, Benefit — no labels, plain English):"""
+USER MESSAGE:
+{message}
+
+RESPONSE FORMAT:
+Write 3 sentences:
+1. Explain the current situation using real numbers.
+2. Suggest one clear action.
+3. Explain the benefit of that action.
+
+Your answer:
+""".strip()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -381,10 +411,11 @@ def _stream_text(text: str, model_used: str = "instant"):
     Used for fast-path replies so the UX is identical to LLM streaming.
     """
     words = text.split(" ")
+    yield _sse("token", "")
     for i, word in enumerate(words):
         chunk = word if i == 0 else " " + word
         yield _sse("token", chunk)
-        time.sleep(0.018)   # ~55 words/sec — feels natural, not laggy
+        time.sleep(0.01)   # ~55 words/sec — feels natural, not laggy
     yield _sse("done", json.dumps({"model_used": model_used}))
 
 
@@ -402,9 +433,9 @@ def _stream_ollama(messages: list[dict], model: str, user_id: int, user_message:
                 "stream":   True,
                 "messages": messages,
                 "options": {
-                    "temperature":    0.25,
+                    "temperature":    0.2,
                     "top_p":          0.85,
-                    "num_predict":    160,
+                    "num_predict":    120,
                     "repeat_penalty": 1.2,
                     "stop": ["User:", "User said:", "\n\n\n"],
                 },
@@ -505,7 +536,7 @@ def chat():
         *history[-12:],
         {"role": "user",   "content": message},
     ]
-    model = "mistral" if len(message) >= 120 else "phi3"
+    model = "phi3"
 
     return Response(
         stream_with_context(_stream_ollama(messages, model, user_id, message)),

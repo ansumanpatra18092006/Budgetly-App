@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="/static/css/pages.css">
     <link rel="stylesheet" href="/static/css/responsive.css">
     <link rel="stylesheet" href="/static/css/roadmap.css">
+    <link rel="stylesheet" href="/static/css/payment.css">
 </head>
 
 <body>
@@ -252,6 +253,58 @@
 
                 </div>
 
+                <div class="wallet-widget" style="margin-bottom: var(--spacing-xl);">
+
+                    <!-- Header row -->
+                    <div class="wallet-widget-header">
+                        <span class="wallet-widget-label">
+                            <i class="fa-solid fa-wallet" style="margin-right:6px;"></i>
+                            Budgetly Wallet
+                        </span>
+                        <!-- Ledger integrity badge – populated by JS -->
+                        <span id="ledgerBadge" class="pay-risk-badge"
+                            style="background:rgba(255,255,255,0.10);color:rgba(255,255,255,0.50);font-size:0.65rem;cursor:pointer;"
+                            onclick="checkLedgerIntegrity()" title="Click to verify transaction chain">
+                            <i class="fa-solid fa-link"></i> Ledger
+                        </span>
+                    </div>
+
+                    <!-- Balance -->
+                    <div class="wallet-widget-balance wallet-balance-display">₹0.00</div>
+
+                    <!-- Action buttons -->
+                    <div class="wallet-widget-actions">
+                        <button class="wallet-action-btn" onclick="openTopupModal()">
+                            <i class="fa-solid fa-circle-plus"></i> Add Money
+                        </button>
+                        <button class="wallet-action-btn" onclick="openSendModal()">
+                            <i class="fa-solid fa-paper-plane"></i> Send
+                        </button>
+                        <button class="wallet-action-btn" onclick="openWalletHistoryPanel()">
+                            <i class="fa-solid fa-clock-rotate-left"></i> History
+                        </button>
+                    </div>
+
+                </div>
+
+                <!-- Wallet history panel (slide-in, reuses existing modal pattern) -->
+                <div id="walletHistoryModal" class="pay-overlay hidden" role="dialog" aria-modal="true">
+                    <div class="pay-sheet" style="max-width:560px;">
+                        <div class="pay-sheet-header">
+                            <div class="pay-sheet-icon" style="background:linear-gradient(135deg,#1d4ed8,#2563eb);">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                            </div>
+                            <div>
+                                <h2 class="pay-sheet-title">Wallet History</h2>
+                                <p class="pay-sheet-sub">Your recent wallet transactions</p>
+                            </div>
+                            <button class="pay-close-btn" onclick="closeWalletHistoryPanel()">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <ul id="walletHistoryList" style="padding:0;margin:0;list-style:none;"></ul>
+                    </div>
+                </div>
                 <!-- ROW 4: CHARTS -->
                 <div class="charts-grid">
                     <div class="chart-card">
@@ -311,18 +364,12 @@
                                 <option value="">Auto-detect</option>
                                 <option value="Food">Food</option>
                                 <option value="Transport">Transport</option>
-                                <option value="Rent">Rent</option>
-                                <option value="Utilities">Utilities</option>
                                 <option value="Shopping">Shopping</option>
                                 <option value="Health">Health</option>
                                 <option value="Education">Education</option>
                                 <option value="Entertainment">Entertainment</option>
-                                <option value="Subscriptions">Subscriptions</option>
-                                <option value="Travel">Travel</option>
-                                <option value="Personal">Personal</option>
-                                <option value="Family">Family</option>
+                                <option value="Housing">Housing</option>
                                 <option value="Finance">Finance</option>
-                                <option value="Insurance">Insurance</option>
                                 <option value="Misc">Misc</option>
                             </select>
                         </div>
@@ -358,8 +405,12 @@
 
                 <div class="filter-controls">
                     <input type="file" id="csvInput" hidden accept=".csv">
+                    <input type="file" id="pdfInput" hidden accept="application/pdf">
                     <button class="btn-secondary" id="importCsvBtn">
                         <i class="fa-solid fa-file-import" aria-hidden="true"></i> Import CSV
+                    </button>
+                    <button class="btn-secondary" id="importPdfBtn">
+                        <i class="fa-solid fa-file-pdf"></i> Import PDF
                     </button>
                     <button class="btn-secondary" id="exportCsvBtn" aria-label="Export transactions to CSV">
                         <i class="fa-solid fa-download" aria-hidden="true"></i> Export CSV
@@ -433,7 +484,8 @@
                 <div class="goals-summary" id="goalsSummary" style="display:none;">
                     <div class="goals-summary-card">
                         <div class="goals-summary-label"><i class="fa-solid fa-bullseye"
-                                style="margin-right:5px;"></i>Total Goals</div>
+                                style="margin-right:5px;"></i>Total
+                            Goals</div>
                         <div class="goals-summary-value" id="summaryTotal">0</div>
                     </div>
                     <div class="goals-summary-card">
@@ -978,6 +1030,41 @@
         </div>
     </div>
 
+    <div id="previewModal" class="modal hidden">
+        <div class="modal-content preview-modern">
+
+            <div class="preview-header">
+                <h2>Review Transactions</h2>
+                <span id="previewCount"></span>
+            </div>
+
+            <div class="preview-table-wrap">
+                <table class="preview-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th>Amount</th>
+                            <th>Type</th>
+                            <th>Category</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="previewTableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="preview-actions">
+                <button class="btn-primary" onclick="confirmImport()">
+                    Import All
+                </button>
+                <button class="btn-secondary" onclick="closePreview()">
+                    Cancel
+                </button>
+            </div>
+
+        </div>
+    </div>
     <!-- Event wiring: all scripts above are parsed, DOM is ready -->
     <script>
 
@@ -997,6 +1084,83 @@
                     () => autoAddRecurring(item)
                 );
             });
+        }
+        let previewData = [];
+
+        function showPreview(transactions) {
+            previewData = transactions;
+
+            const tbody = document.getElementById("previewTableBody");
+            const count = document.getElementById("previewCount");
+
+            tbody.innerHTML = "";
+            count.innerText = `${transactions.length} transactions`;
+
+            transactions.forEach((t, i) => {
+                const row = `
+        <tr>
+            <td>${t.date}</td>
+
+            <td contenteditable="true"
+                oninput="editField(${i}, 'description', this.innerText)">
+                ${t.description}
+            </td>
+
+            <td>₹${t.amount}</td>
+
+            <td>
+                <span class="${t.type === 'expense' ? 'expense' : 'income'}">
+                    ${t.type}
+                </span>
+            </td>
+
+            <td>
+                <select class="category-select"
+                    onchange="editField(${i}, 'category', this.value)">
+                    ${getCategoryOptions(t.category)}
+                </select>
+            </td>
+
+            <td>
+                <span class="delete-btn"
+                    onclick="removeRow(${i})">🗑</span>
+            </td>
+        </tr>
+        `;
+                tbody.innerHTML += row;
+            });
+
+            document.getElementById("previewModal").classList.remove("hidden");
+        }
+
+        function editField(index, field, value) {
+            previewData[index][field] = value;
+        }
+
+        function removeRow(index) {
+            previewData.splice(index, 1);
+            showPreview(previewData);
+        }
+
+        async function confirmImport() {
+            const res = await fetch("/save-preview-transactions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ transactions: previewData })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                showNotification(`Imported ${data.count} transactions`, "success");
+                closePreview();
+                loadHistory();
+            }
+        }
+
+        function closePreview() {
+            document.getElementById("previewModal").classList.add("hidden");
         }
 
         (function () {
@@ -1026,6 +1190,52 @@
             // History buttons
             document.getElementById('importCsvBtn').addEventListener('click', () => document.getElementById('csvInput').click());
             document.getElementById('csvInput').addEventListener('change', function () { importCSV(this); });
+            // PDF import (UPI statement)
+            // ===============================
+            // PDF IMPORT (PREVIEW FLOW)
+            // ===============================
+            document.getElementById('importPdfBtn')?.addEventListener('click', () => {
+                document.getElementById('pdfInput')?.click();
+            });
+
+            document.getElementById('pdfInput')?.addEventListener('change', async function () {
+                const file = this.files[0];
+                if (!file) return;
+
+                showNotification('Parsing PDF statement...', 'info');
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const res = await fetch('/upload-statement-preview', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'include'
+                    });
+
+                    if (!res.ok) throw new Error('Server error');
+
+                    const data = await res.json();
+
+                    if (data.success && data.transactions?.length) {
+                        showNotification(`Found ${data.transactions.length} transactions`, 'success');
+
+                        // 🔥 OPEN PREVIEW INSTEAD OF DIRECT SAVE
+                        showPreview(data.transactions);
+
+                    } else {
+                        showNotification('No transactions found in PDF', 'warning');
+                    }
+
+                } catch (err) {
+                    console.error('PDF Upload Error:', err);
+                    showNotification('Failed to process PDF', 'error');
+                }
+
+                // allow re-upload same file
+                this.value = '';
+            });
             document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
             document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
             document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
@@ -1094,6 +1304,236 @@
         }
     </script>
 
+    <!-- ================================================================
+     PASTE THIS BLOCK INSIDE <body>, just before </body>
+     in index.html.
+     
+     Three modals:
+       1. #txPreviewModal     — transaction preview + payment choice
+       2. #upiConfirmModal    — UPI "did you pay?" confirmation
+       3. #walletTopupModal   — add money to wallet
+       4. #walletSendModal    — send to another user
+================================================================ -->
+
+    <!-- ── 1. TRANSACTION PREVIEW / DECISION MODAL ─────────────────── -->
+    <div id="txPreviewModal" class="pay-overlay hidden" role="dialog" aria-modal="true"
+        aria-labelledby="previewModalTitle">
+        <div class="pay-sheet">
+
+            <!-- Header -->
+            <div class="pay-sheet-header">
+                <div class="pay-sheet-icon">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <div>
+                    <h2 id="previewModalTitle" class="pay-sheet-title">Review Transaction</h2>
+                    <p class="pay-sheet-sub">Confirm impact before paying</p>
+                </div>
+                <button class="pay-close-btn" onclick="closePreviewModal()" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Risk badge -->
+            <div class="pay-risk-row">
+                <span id="previewRiskBadge" class="pay-risk-badge">Low Risk</span>
+                <p id="previewWarningText" class="pay-warning-text"></p>
+            </div>
+
+            <!-- Impact grid -->
+            <div class="pay-impact-grid">
+                <div class="pay-impact-cell">
+                    <span class="pay-impact-label">Surplus after</span>
+                    <span id="previewSurplusAfter" class="pay-impact-value">—</span>
+                </div>
+                <div class="pay-impact-cell">
+                    <span class="pay-impact-label">Budget used</span>
+                    <span id="previewBudgetAfter" class="pay-impact-value">—</span>
+                </div>
+                <div class="pay-impact-cell">
+                    <span class="pay-impact-label">Savings rate</span>
+                    <span id="previewSavingsAfter" class="pay-impact-value">—</span>
+                </div>
+            </div>
+
+            <!-- Goal note -->
+            <p id="previewGoalImpact" class="pay-goal-note" style="display:none"></p>
+
+            <!-- Wallet balance chip -->
+            <div class="pay-wallet-chip">
+                <i class="fa-solid fa-wallet"></i>
+                Wallet balance:&nbsp;
+                <strong class="wallet-balance-display">₹0.00</strong>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="pay-action-row">
+                <button id="previewWalletBtn" class="pay-btn pay-btn-wallet" onclick="proceedWithWallet()">
+                    <i class="fa-solid fa-wallet"></i>
+                    <span>Pay with Wallet</span>
+                    <small>Instant &amp; internal</small>
+                </button>
+
+                <button class="pay-btn pay-btn-upi" onclick="proceedWithUPI()">
+                    <i class="fa-solid fa-mobile-screen"></i>
+                    <span>Pay with UPI</span>
+                    <small>External payment</small>
+                </button>
+            </div>
+
+            <button class="pay-cancel-text" onclick="closePreviewModal()">
+                Cancel — don't save
+            </button>
+        </div>
+    </div>
+
+    <!-- ── 2. UPI CONFIRMATION MODAL ───────────────────────────────── -->
+    <div id="upiConfirmModal" class="pay-overlay hidden" role="dialog" aria-modal="true"
+        aria-labelledby="upiConfirmTitle">
+        <div class="pay-sheet pay-sheet-sm">
+
+            <div class="pay-sheet-header">
+                <div class="pay-sheet-icon pay-sheet-icon-upi">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                </div>
+                <div>
+                    <h2 id="upiConfirmTitle" class="pay-sheet-title">UPI Payment</h2>
+                    <p class="pay-sheet-sub">Confirm after completing payment</p>
+                </div>
+            </div>
+
+            <div class="upi-confirm-summary">
+                <p class="upi-confirm-label">Amount</p>
+                <p id="upiConfirmAmount" class="upi-confirm-amount">₹0.00</p>
+                <p id="upiConfirmDesc" class="upi-confirm-desc">—</p>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label class="form-label" for="upiRefInput">
+                    UPI Reference / UTR (optional)
+                </label>
+                <input id="upiRefInput" type="text" class="form-input" placeholder="e.g. 412234567890" maxlength="30"
+                    autocomplete="off">
+            </div>
+
+            <div class="pay-action-row" style="flex-direction:column; gap:10px;">
+                <button class="pay-btn pay-btn-wallet" onclick="confirmUPISuccess()">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <span>Yes, payment done!</span>
+                    <small>Record this transaction</small>
+                </button>
+                <button class="pay-cancel-text" onclick="cancelUPIPayment()">
+                    No — I did not pay
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ── 3. WALLET TOP-UP MODAL ──────────────────────────────────── -->
+    <div id="walletTopupModal" class="pay-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="topupTitle">
+        <div class="pay-sheet pay-sheet-sm">
+
+            <div class="pay-sheet-header">
+                <div class="pay-sheet-icon" style="background: linear-gradient(135deg,#059669,#047857);">
+                    <i class="fa-solid fa-circle-plus"></i>
+                </div>
+                <div>
+                    <h2 id="topupTitle" class="pay-sheet-title">Add Money</h2>
+                    <p class="pay-sheet-sub">Top up your Budgetly Wallet</p>
+                </div>
+                <button class="pay-close-btn" onclick="closeTopupModal()" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="topup-balance-row">
+                Current balance: <strong class="wallet-balance-display">₹0.00</strong>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="topupAmount">Amount (₹)</label>
+                <input id="topupAmount" type="number" class="form-input" placeholder="500" min="1" max="100000"
+                    oninput="this.value = this.value.replace(/[^0-9.]/g,'')">
+            </div>
+
+            <!-- Quick amounts -->
+            <div class="topup-quick-row">
+                <span class="topup-quick-label">Quick add:</span>
+                <button class="topup-quick-chip"
+                    onclick="document.getElementById('topupAmount').value=500">₹500</button>
+                <button class="topup-quick-chip"
+                    onclick="document.getElementById('topupAmount').value=1000">₹1K</button>
+                <button class="topup-quick-chip"
+                    onclick="document.getElementById('topupAmount').value=2000">₹2K</button>
+                <button class="topup-quick-chip"
+                    onclick="document.getElementById('topupAmount').value=5000">₹5K</button>
+            </div>
+
+            <button id="topupSubmitBtn" class="btn-primary" style="width:100%;margin-top:16px;" onclick="submitTopup()">
+                <i class="fa-solid fa-plus"></i> Add Money
+            </button>
+        </div>
+    </div>
+
+    <!-- ── 4. WALLET SEND MODAL ────────────────────────────────────── -->
+    <div id="walletSendModal" class="pay-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="sendTitle">
+        <div class="pay-sheet pay-sheet-sm">
+
+            <div class="pay-sheet-header">
+                <div class="pay-sheet-icon" style="background: linear-gradient(135deg,#7c3aed,#5b21b6);">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </div>
+                <div>
+                    <h2 id="sendTitle" class="pay-sheet-title">Send Money</h2>
+                    <p class="pay-sheet-sub">Transfer to another user's wallet</p>
+                </div>
+                <button class="pay-close-btn" onclick="closeSendModal()" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="topup-balance-row">
+                Available: <strong class="wallet-balance-display">₹0.00</strong>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="sendReceiverEmail">Receiver Email</label>
+                <input id="sendReceiverEmail" type="email" class="form-input" placeholder="friend@example.com"
+                    autocomplete="off">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="sendAmount">Amount (₹)</label>
+                <input id="sendAmount" type="number" class="form-input" placeholder="0" min="1"
+                    oninput="this.value = this.value.replace(/[^0-9.]/g,'')">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="sendNote">Note (optional)</label>
+                <input id="sendNote" type="text" class="form-input" placeholder="Lunch split, rent, etc."
+                    maxlength="120">
+            </div>
+
+            <button id="sendSubmitBtn" class="btn-primary" style="width:100%;margin-top:4px;" onclick="submitSend()">
+                <i class="fa-solid fa-paper-plane"></i> Send
+            </button>
+        </div>
+    </div>
+
+    <!-- ✅ ADD QR MODAL HERE -->
+    <div id="upiQRModal" class="pay-overlay hidden">
+        <div class="pay-sheet">
+            <h3>Scan & Pay</h3>
+            <img src="" style="width:200px;height:200px;margin:10px auto;display:block;" />
+            <p style="text-align:center;">
+                Scan using Google Pay / PhonePe
+            </p>
+
+            <button class="pay-btn" onclick="closeUPIQRModal()">Close</button>
+        </div>
+    </div>
+    <script src="/static/js/wallet.js"></script>
 </body>
 
 </html>

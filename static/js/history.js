@@ -66,18 +66,18 @@ function setupSearchDebounce() {
 }
 
 async function applyFilters() {
-    const start    = document.getElementById('filterStart').value;
-    const end      = document.getElementById('filterEnd').value;
-    const type     = document.getElementById('filterType').value;
+    const start = document.getElementById('filterStart').value;
+    const end = document.getElementById('filterEnd').value;
+    const type = document.getElementById('filterType').value;
     const category = document.getElementById('filterCategory').value;
-    const search   = document.getElementById('filterSearch').value.trim();
+    const search = document.getElementById('filterSearch').value.trim();
 
     const params = new URLSearchParams();
-    if (start)                          params.append('start',    start);
-    if (end)                            params.append('end',      end);
-    if (type     && type     !== 'All') params.append('type',     type);
+    if (start) params.append('start', start);
+    if (end) params.append('end', end);
+    if (type && type !== 'All') params.append('type', type);
     if (category && category !== 'All') params.append('category', category);
-    if (search)                         params.append('search',   search);
+    if (search) params.append('search', search);
 
     setListLoading('transactionsList');
 
@@ -94,11 +94,11 @@ async function applyFilters() {
 }
 
 function resetFilters() {
-    document.getElementById('filterStart').value    = '';
-    document.getElementById('filterEnd').value      = '';
-    document.getElementById('filterType').value     = 'All';
+    document.getElementById('filterStart').value = '';
+    document.getElementById('filterEnd').value = '';
+    document.getElementById('filterType').value = 'All';
     document.getElementById('filterCategory').value = 'All';
-    document.getElementById('filterSearch').value   = '';
+    document.getElementById('filterSearch').value = '';
     loadHistory();
     showNotification('Filters cleared', 'success');
 }
@@ -152,9 +152,9 @@ async function importCSV(input) {
 
     try {
         const res = await fetch('/import-transactions', {
-            method:      'POST',
+            method: 'POST',
             credentials: 'include',
-            body:        formData,
+            body: formData,
         });
 
         if (res && res.ok) {
@@ -174,4 +174,24 @@ async function importCSV(input) {
 
 function exportCSV() {
     window.open('/export-transactions', '_blank');
+}
+
+async function uploadStatement(file) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch("/upload-statement", {
+        method: "POST",
+        body: formData,
+        credentials: "include"
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+        showNotification(`${data.count} transactions imported`, "success");
+        loadHistory();
+    } else {
+        showNotification("Import failed", "error");
+    }
 }

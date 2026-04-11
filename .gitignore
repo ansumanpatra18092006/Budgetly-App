@@ -1,8 +1,24 @@
+# Database
+*.db
+*.sqlite3
+
+# Env
 .env
-venv/
+
+# ML models
+*.pkl
+
+# Cache
 __pycache__/
 *.pyc
-*.log
-build/
-.dart_tool/
-android/.gradle/
+
+# Personal / large files
+*.pdf
+*.pptx
+*.jpeg
+*.jpg
+*.csv
+~$*
+
+# OS
+.DS_Store

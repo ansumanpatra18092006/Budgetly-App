@@ -474,3 +474,41 @@
         transition-duration: 0.01ms !important;
     }
 }
+
+/*Pdf preview*/
+.preview-modern {
+    width: 95%;
+    max-width: 1100px;
+    border-radius: 16px;
+    padding: 20px;
+    background: var(--card-bg);
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.preview-table-wrap {
+    max-height: 450px;
+    overflow-y: auto;
+}
+
+.preview-table td {
+    padding: 10px;
+}
+
+.preview-table tr:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.category-select {
+    border-radius: 6px;
+    padding: 4px;
+}
+
+.delete-btn {
+    color: red;
+    cursor: pointer;
+}
