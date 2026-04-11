@@ -1078,7 +1078,7 @@ def _extract_pdf_text(file) -> str:
         for i, page in enumerate(pdf.pages):
 
             # 🔥 LIMIT pages (CRITICAL FIX)
-            if i >= 3:
+            if i >= 20:
                 break
 
             # 🔥 FAST extraction
