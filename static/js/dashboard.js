@@ -12,7 +12,6 @@ async function loadDashboard() {
         loadBalanceTrend(),
     ]);
     await loadAllAIFeatures();   // ← ADD THIS LINE
-    print("GOALS RAW RESPONSE: $goalMaps");
 }
 
 async function fetchSummary() {
