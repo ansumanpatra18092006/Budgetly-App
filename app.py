@@ -1,17 +1,27 @@
 from flask import Flask, render_template, session, redirect, url_for
 from flask_cors import CORS
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 import os
 
-from dotenv import load_dotenv, find_dotenv
-
+# ─────────────────────────────────────────────────────────────
+# Environment
+# ─────────────────────────────────────────────────────────────
 print("DOTENV FILE:", find_dotenv())
 load_dotenv(find_dotenv(), override=True)
 
-from utils.db import init_db, get_db
+# ─────────────────────────────────────────────────────────────
+# Database
+# ─────────────────────────────────────────────────────────────
+from utils.db import init_db
+
+# ─────────────────────────────────────────────────────────────
+# Migrations
+# ─────────────────────────────────────────────────────────────
 from utils.db_migrate import run_migrations
 
-# ── blueprints ───────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# Blueprints
+# ─────────────────────────────────────────────────────────────
 from routes.auth import auth_bp
 from routes.transactions import transactions_bp
 from routes.dashboard import dashboard_bp
@@ -22,34 +32,47 @@ from routes.chatbot import chat_bp
 from routes.ai_insights import ai_insights_bp
 from routes.preview import preview_bp
 
-# ─────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# App
+# ─────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
-# 🔐 Secret key (use Render env variable in production)
+# Secret key
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
-# 🌐 CORS (Flutter + web support)
+# ─────────────────────────────────────────────────────────────
+# CORS
+# ─────────────────────────────────────────────────────────────
 CORS(
     app,
     supports_credentials=True,
-    resources={r"/*": {"origins": "*"}}
+    resources={r"/*": {"origins": "*"}},
 )
 
-# 🍪 Session config (IMPORTANT for production)
-# app.config.update(
-#     SESSION_COOKIE_SAMESITE="Lax",
-#     SESSION_COOKIE_SECURE=False
-# )
+# ─────────────────────────────────────────────────────────────
+# Session configuration
+# ─────────────────────────────────────────────────────────────
+# For production behind HTTPS, keep Secure enabled.
+# SameSite=Lax works for the normal web flow.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true",
+)
 
-# ── SQLite DB setup (SAFE for deployment) ────────────────
+# ─────────────────────────────────────────────────────────────
+# Database initialization
+# ─────────────────────────────────────────────────────────────
 try:
     init_db()
     run_migrations()
     print("✅ Database initialized")
 except Exception as e:
-    print("⚠️ DB init skipped:", e)
+    print(f"⚠️ DB init skipped: {e}")
 
-# ── register blueprints ───────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# Register blueprints
+# ─────────────────────────────────────────────────────────────
 app.register_blueprint(oauth_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(transactions_bp)
@@ -60,43 +83,84 @@ app.register_blueprint(chat_bp)
 app.register_blueprint(ai_insights_bp)
 app.register_blueprint(preview_bp)
 
-# ── page routes ───────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# Page routes
+# ─────────────────────────────────────────────────────────────
+
 @app.route("/")
 def home():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
+
     return render_template("index.html")
+
 
 @app.route("/login")
 def login_page():
     return render_template("login.html")
 
+
+# ─────────────────────────────────────────────────────────────
+# Session/user verification endpoint
+# ─────────────────────────────────────────────────────────────
+
 @app.route("/me", methods=["GET"])
 def get_me():
-    if "user_id" not in session:
+    """
+    Return the currently authenticated user.
+
+    PostgreSQL version:
+    Uses %s parameter placeholders rather than SQLite's ? syntax.
+    """
+    user_id = session.get("user_id")
+
+    if not user_id:
         return {"error": "Unauthorized"}, 401
 
+    from utils.db import get_db
+
     conn = get_db()
-    user = conn.execute(
-        "SELECT id, name, email FROM users WHERE id=?",
-        (session["user_id"],)
-    ).fetchone()
-    conn.close()
+
+    try:
+        user = conn.execute(
+            """
+            SELECT id, name, email
+            FROM users
+            WHERE id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+    finally:
+        conn.close()
 
     if not user:
         return {"error": "User not found"}, 404
 
     return {
-        "id": user["id"],
-        "name": user["name"],
-        "email": user["email"]
+        "data": {
+            "id": user["id"],
+            "name": user["name"],
+            "email": user["email"],
+        }
     }
 
-# ── health check (for Render) ─────────────────────────────
+
+# ─────────────────────────────────────────────────────────────
+# Health check
+# ─────────────────────────────────────────────────────────────
+
 @app.route("/health")
 def health():
     return {"status": "ok"}
 
-# ── local run (not used in Render) ───────────────────────
+
+# ─────────────────────────────────────────────────────────────
+# Local development
+# ─────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 5000)),
+        debug=False,
+    )
