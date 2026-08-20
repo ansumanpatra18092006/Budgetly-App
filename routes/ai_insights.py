@@ -100,12 +100,13 @@ def _fetch_full_metrics(conn, user_id):
     # ═══════════════════════════════════════════════════════════
     # COMPUTE BASE METRICS
     # ═══════════════════════════════════════════════════════════
-    income    = float(cur["income"])
-    expense   = float(cur["expense"])
+    # Safely convert PostgreSQL Decimals to float before calculations
+    income    = float(cur["income"] or 0)
+    expense   = float(cur["expense"] or 0)
     surplus   = income - expense
-    budget    = float(budget_row["amount"]) if budget_row else 0.0
-    p_expense = float(prev["expense"])
-    p_income  = float(prev["income"])
+    budget    = float(budget_row["amount"] or 0) if budget_row else 0.0
+    p_expense = float(prev["expense"] or 0)
+    p_income  = float(prev["income"] or 0)
 
     savings_rate    = round(surplus / income * 100, 1)          if income  > 0 else 0.0
     budget_used_pct = round(expense / budget * 100, 1)          if budget  > 0 else 0.0
@@ -115,8 +116,9 @@ def _fetch_full_metrics(conn, user_id):
     days_left    = max(30 - days_passed, 0)
     daily_burn   = expense / days_passed
 
-    top_cat_name = top_cat["category"] if top_cat else "N/A"
-    top_cat_pct  = round(top_cat["total"] / expense * 100, 1) if top_cat and expense > 0 else 0.0
+    top_cat_name  = top_cat["category"] if top_cat else "N/A"
+    top_cat_total = float(top_cat["total"] or 0) if top_cat else 0.0
+    top_cat_pct   = round(top_cat_total / expense * 100, 1) if top_cat and expense > 0 else 0.0
 
     # ── Average monthly cash flow (3-month history) ──────────────
     if hist_rows:
@@ -195,8 +197,9 @@ def _fetch_full_metrics(conn, user_id):
 
     # Urgency bonus — amplify if surplus can't cover goals
     total_monthly_required = sum(
-        g["monthly_required"] or 0 for g in goal_details if g["monthly_required"]
+        float(g["monthly_required"] or 0) for g in goal_details if g["monthly_required"]
     )
+    
     if avg_monthly_surplus > 0 and total_monthly_required > 0:
         coverage_ratio = avg_monthly_surplus / total_monthly_required
         if coverage_ratio < 0.5:
@@ -305,21 +308,21 @@ def ai_insights():
             continue
 
         pct = g["progress_percent"]
-        mr  = g["monthly_required"]
+        mr  = float(g["monthly_required"] or 0)
 
         # Goal falling behind
         if g["goal_risk"] == "high":
             insights.append({
-                "message": f"Goal '{g['name']}' needs ₹{int(mr or 0)}/mo but your surplus is only ₹{int(m['avg_monthly_surplus'])}. It may be delayed.",
+                "message": f"Goal '{g['name']}' needs ₹{int(mr)}/mo but your surplus is only ₹{int(m['avg_monthly_surplus'])}. It may be delayed.",
                 "level": "high", "type": "goal"
             })
         elif g["goal_risk"] == "medium":
             ml = g.get("months_left", "?")
             insights.append({
-                "message": f"Goal '{g['name']}' is {pct}% funded with {ml} months left. Save ₹{int(mr or 0)}/mo to stay on track.",
+                "message": f"Goal '{g['name']}' is {pct}% funded with {ml} months left. Save ₹{int(mr)}/mo to stay on track.",
                 "level": "medium", "type": "goal"
             })
-        elif pct < 20 and m["surplus"] > 0 and mr:
+        elif pct < 20 and m["surplus"] > 0 and mr > 0:
             months = round(g["remaining"] / m["avg_monthly_surplus"]) if m["avg_monthly_surplus"] > 0 else "?"
             insights.append({
                 "message": f"Goal '{g['name']}' is {pct}% funded. At ₹{int(m['avg_monthly_surplus'])}/mo surplus, ~{months} months to go.",
@@ -498,21 +501,21 @@ def goal_intelligence():
         insight_msg = None
         savings_tip = None
 
-        mr  = g["monthly_required"]
+        mr  = float(g["monthly_required"] or 0)
         ml  = g["months_left"]
         pct = g["progress_percent"]
-        rem = g["remaining"]
+        rem = float(g["remaining"] or 0)
 
         if g["goal_risk"] == "high":
-            shortfall = max(0, (mr or 0) - m["avg_monthly_surplus"])
+            shortfall = max(0, mr - m["avg_monthly_surplus"])
             insight_msg = (
-                f"Needs ₹{int(mr or 0)}/mo but surplus is ₹{int(m['avg_monthly_surplus'])}. "
+                f"Needs ₹{int(mr)}/mo but surplus is ₹{int(m['avg_monthly_surplus'])}. "
                 f"Reduce {m['top_cat_name']} by ₹{int(shortfall)} to close the gap."
             )
             savings_tip = f"Cut {m['top_cat_name']} spending by 15% to free ₹{int(m['expense'] * m['top_cat_pct'] / 100 * 0.15)}."
         elif g["goal_risk"] == "medium":
-            insight_msg = f"{pct:.0f}% funded. Save ₹{int(mr or 0)}/mo for {ml} more months."
-            savings_tip = f"Automate ₹{int((mr or 0) * 0.5)} bi-weekly transfers for discipline."
+            insight_msg = f"{pct:.0f}% funded. Save ₹{int(mr)}/mo for {ml} more months."
+            savings_tip = f"Automate ₹{int(mr * 0.5)} bi-weekly transfers for discipline."
         else:
             if pct >= 90:
                 insight_msg = f"Almost there! Just ₹{int(rem)} remaining."
@@ -522,7 +525,7 @@ def goal_intelligence():
                 savings_tip = "You're on track. Keep contributions consistent."
             else:
                 insight_msg = f"Early stage — {pct:.0f}% funded. Consistency is key."
-                savings_tip = f"Set up auto-transfer of ₹{int(mr or 0)} on payday."
+                savings_tip = f"Set up auto-transfer of ₹{int(mr)} on payday."
 
         results.append({
             **g,
@@ -568,7 +571,7 @@ def behavioral_patterns():
 
     monthly = {}
     for r in rows:
-        monthly.setdefault(r["month"], {})[r["category"]] = float(r["total"])
+        monthly.setdefault(r["month"], {})[r["category"]] = float(r["total"] or 0)
     months = sorted([m for m in monthly.keys() if m], reverse=True)
     if len(months) < 2:
         return jsonify({"patterns": patterns})
@@ -577,7 +580,7 @@ def behavioral_patterns():
     prv_d = monthly[months[1]]
 
     for cat, ct in cur_d.items():
-        pt = prv_d.get(cat, 0)
+        pt = prv_d.get(cat, 0.0)
         if pt > 0:
             chg = (ct - pt) / pt * 100
             if chg > 30:
@@ -612,8 +615,8 @@ def behavioral_patterns():
 
     if len(rate_rows) >= 3:
         rates = [
-            round((float(r["income"]) - float(r["expense"])) / float(r["income"]) * 100, 1)
-            if float(r["income"]) > 0 else 0
+            round((float(r["income"] or 0) - float(r["expense"] or 0)) / float(r["income"] or 0) * 100, 1)
+            if float(r["income"] or 0) > 0 else 0.0
             for r in rate_rows
         ]
         if rates[0] < rates[1] < rates[2]:
@@ -804,7 +807,7 @@ def _build_recurring_candidates(conn, user_id):
         g = groups.setdefault(key, {"description": r["description"], "category": r["category"],
                                      "dates": [], "amounts": []})
         g["dates"].append(r["date"])
-        g["amounts"].append(float(r["amount"]))
+        g["amounts"].append(float(r["amount"] or 0))
         g["category"] = r["category"] or g["category"]  # most recent category wins
 
     candidates = []
