@@ -6,10 +6,18 @@ from utils.db import get_db
 
 oauth_bp = Blueprint("oauth", __name__)
 
+# Load OAuth credentials from environment variables
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+
+# Dynamically load the Redirect URI
+REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+
+# Fail fast on startup if the environment variable is missing
+if not REDIRECT_URI:
+    raise RuntimeError("Missing GOOGLE_REDIRECT_URI environment variable. Please set it in your .env file or Render dashboard.")
+
 DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
-REDIRECT_URI = "http://127.0.0.1:5000/google-callback"
 
 def get_google_cfg():
     return requests.get(DISCOVERY_URL).json()
@@ -20,6 +28,7 @@ def google_login():
     google_cfg = get_google_cfg()
     auth_endpoint = google_cfg["authorization_endpoint"]
 
+    # Use the dynamic REDIRECT_URI loaded from the environment
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
         redirect_uri=REDIRECT_URI,
@@ -36,6 +45,7 @@ def google_callback():
     google_cfg = get_google_cfg()
     token_endpoint = google_cfg["token_endpoint"]
 
+    # Use the dynamic REDIRECT_URI loaded from the environment
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
         state=session.get("oauth_state"),
