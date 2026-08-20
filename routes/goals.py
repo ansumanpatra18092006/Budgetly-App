@@ -49,11 +49,11 @@ def _get_monthly_cash_flow(conn, user_id: int):
     """
     rows = conn.execute("""
         SELECT
-            strftime('%Y-%m', date) AS month,
+            TO_CHAR(date::date, 'YYYY-MM') AS month,
             SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END) AS income,
             SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
         FROM   transactions
-        WHERE  user_id = ?
+        WHERE  user_id = %s
         GROUP  BY month
         ORDER  BY month DESC
         LIMIT  3
@@ -110,7 +110,7 @@ def generate_roadmap_handler():
     try:
         goal_row = conn.execute("""
             SELECT id, name, target_amount, saved_amount, category, target_date
-            FROM goals WHERE id=? AND user_id=?
+            FROM goals WHERE id=%s AND user_id=%s
         """, (goal_id, user_id)).fetchone()
  
         if not goal_row:
@@ -124,15 +124,15 @@ def generate_roadmap_handler():
  
         # ── All expense history for anomaly detection + forecast ──
         expense_hist = conn.execute("""
-            SELECT strftime('%Y-%m', date) AS month, SUM(amount) AS total
-            FROM transactions WHERE user_id=? AND type='expense'
+            SELECT TO_CHAR(date::date, 'YYYY-MM') AS month, SUM(amount) AS total
+            FROM transactions WHERE user_id=%s AND type='expense'
             GROUP BY month ORDER BY month ASC
         """, (user_id,)).fetchall()
  
         # ── Anomaly check (individual transactions) ───────────────
         tx_amounts = conn.execute("""
             SELECT amount FROM transactions
-            WHERE user_id=? AND type='expense' ORDER BY date ASC
+            WHERE user_id=%s AND type='expense' ORDER BY date ASC
         """, (user_id,)).fetchall()
  
     finally:
@@ -544,7 +544,7 @@ def get_goals():
 
     try:
         rows = conn.execute(
-            "SELECT * FROM goals WHERE user_id = ? ORDER BY id DESC",
+            "SELECT * FROM goals WHERE user_id = %s ORDER BY id DESC",
             (user_id,),
         ).fetchall()
     finally:
@@ -613,7 +613,7 @@ def add_goal():
             INSERT INTO goals
                 (user_id, name, target_amount, saved_amount, category,
                  target_date, created_at)
-            VALUES (?, ?, ?, 0, ?, ?, ?)
+            VALUES (%s, %s, %s, 0, %s, %s, %s)
             """,
             (user_id, name, target, category, target_date, created_at),
         )
@@ -640,7 +640,7 @@ def goal_prediction(goal_id: int):
             SELECT target_amount, saved_amount,
                    target_date   -- column added by db migration
             FROM   goals
-            WHERE  id = ? AND user_id = ?
+            WHERE  id = %s AND user_id = %s
             """,
             (goal_id, user_id),
         ).fetchone()
@@ -692,7 +692,7 @@ def update_goal_progress():
     conn = get_db()
     try:
         goal = conn.execute(
-            "SELECT id, saved_amount, target_amount FROM goals WHERE id = ? AND user_id = ?",
+            "SELECT id, saved_amount, target_amount FROM goals WHERE id = %s AND user_id = %s",
             (goal_id, user_id),
         ).fetchone()
 
@@ -716,7 +716,7 @@ def update_goal_progress():
             new_saved = min(new_saved, target)
 
         conn.execute(
-            "UPDATE goals SET saved_amount = ? WHERE id = ? AND user_id = ?",
+            "UPDATE goals SET saved_amount = %s WHERE id = %s AND user_id = %s",
             (round(new_saved, 2), goal_id, user_id),
         )
         conn.commit()
@@ -746,7 +746,7 @@ def get_goals_detailed():
             SELECT id, name, target_amount, saved_amount, category,
                    target_date, created_at
             FROM   goals
-            WHERE  user_id = ?
+            WHERE  user_id = %s
             ORDER  BY id DESC
             """,
             (user_id,),
@@ -804,7 +804,7 @@ def delete_goal(goal_id: int):
 
     try:
         result = conn.execute(
-            "DELETE FROM goals WHERE id = ? AND user_id = ?",
+            "DELETE FROM goals WHERE id = %s AND user_id = %s",
             (goal_id, user_id),
         )
         conn.commit()
@@ -872,7 +872,7 @@ def generate_roadmap():
             """
             SELECT id, name, target_amount, saved_amount, category, target_date
             FROM   goals
-            WHERE  id = ? AND user_id = ?
+            WHERE  id = %s AND user_id = %s
             """,
             (goal_id, user_id),
         ).fetchone()

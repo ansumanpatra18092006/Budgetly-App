@@ -11,22 +11,24 @@ import os
 
 auth_bp = Blueprint("auth", __name__)
 
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:5000")
 
 @auth_bp.route("/signup", methods=["POST"])
 def signup():
     data = request.get_json()
     conn = get_db()
-    hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt())
+    hashed = bcrypt.hashpw(data["password"].encode(), bcrypt.gensalt()).decode()
 
     try:
         conn.execute(
-            "INSERT INTO users (name,email,password) VALUES (?,?,?)",
+            "INSERT INTO users (name,email,password) VALUES (%s,%s,%s)",
             (data["name"], data["email"], hashed)
         )
         conn.commit()
         return jsonify({"success": True})
-    except:
-        return jsonify({"success": False}), 400
+    except Exception as e:
+        print("SIGNUP ERROR:", e)
+        return jsonify({"success": False, "error": str(e)}), 400
     finally:
         conn.close()
 
@@ -36,12 +38,12 @@ def login():
     data = request.get_json()
     conn = get_db()
     user = conn.execute(
-        "SELECT * FROM users WHERE email=?",
+        "SELECT * FROM users WHERE email=%s",
         (data["email"],)
     ).fetchone()
     conn.close()
 
-    if user and bcrypt.checkpw(data["password"].encode(), user["password"]):
+    if user and bcrypt.checkpw(data["password"].encode(), str(user["password"]).encode()):
         session["user_id"] = user["id"]
         session["logged_in"] = True
         return jsonify({"success": True})
@@ -64,7 +66,7 @@ def user_profile():
     conn = get_db()
 
     user = conn.execute(
-        "SELECT id, name, email FROM users WHERE id = ?",
+        "SELECT id, name, email FROM users WHERE id = %s",
         (user_id,)
     ).fetchone()
 
@@ -96,7 +98,7 @@ def change_password():
 
     conn = get_db()
     user = conn.execute(
-        "SELECT password FROM users WHERE id=?",
+        "SELECT password FROM users WHERE id=%s",
         (session["user_id"],)
     ).fetchone()
 
@@ -104,14 +106,14 @@ def change_password():
         conn.close()
         return jsonify({"success": False}), 404
 
-    if not bcrypt.checkpw(current_password.encode(), user["password"]):
+    if not bcrypt.checkpw(current_password.encode(), str(user["password"]).encode()):
         conn.close()
         return jsonify({"success": False, "message": "Current password incorrect"}), 400
 
-    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt())
+    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
 
     conn.execute(
-        "UPDATE users SET password=? WHERE id=?",
+        "UPDATE users SET password=%s WHERE id=%s",
         (hashed, session["user_id"])
     )
     conn.commit()
@@ -133,7 +135,7 @@ def update_profile():
     conn = get_db()
 
     existing = conn.execute(
-        "SELECT id FROM users WHERE email=? AND id!=?",
+        "SELECT id FROM users WHERE email=%s AND id!=%s",
         (email, session["user_id"])
     ).fetchone()
 
@@ -142,7 +144,7 @@ def update_profile():
         return jsonify({"success": False, "message": "Email already in use"}), 400
 
     conn.execute(
-        "UPDATE users SET name=?, email=? WHERE id=?",
+        "UPDATE users SET name=%s, email=%s WHERE id=%s",
         (name, email, session["user_id"])
     )
     conn.commit()
@@ -156,13 +158,12 @@ def forgot_password():
     data = request.get_json()
     email = data.get("email", "").strip().lower()
 
-    # Always return success early if no email provided (security: no info leak)
     if not email:
         return jsonify({"success": True})
 
     conn = get_db()
     user = conn.execute(
-        "SELECT id FROM users WHERE email=?",
+        "SELECT id FROM users WHERE email=%s",
         (email,)
     ).fetchone()
 
@@ -172,19 +173,17 @@ def forgot_password():
 
         conn.execute("""
             UPDATE users
-            SET reset_token=?, reset_expiry=?
-            WHERE id=?
+            SET reset_token=%s, reset_expiry=%s
+            WHERE id=%s
         """, (token, expiry, user["id"]))
         conn.commit()
 
-        reset_link = f" https://oilless-romona-nostalgically.ngrok-free.dev/reset-password?token={token}"
+        reset_link = f"{APP_BASE_URL}/reset-password?token={token}"
 
-        # Send email — failure is caught inside, app will not crash
         send_reset_email(email, reset_link)
 
     conn.close()
 
-    # Always return success — never reveal whether email exists (security)
     return jsonify({"success": True})
 
 
@@ -198,7 +197,7 @@ def reset_password_page():
     conn = get_db()
     user = conn.execute("""
         SELECT id FROM users
-        WHERE reset_token=? AND reset_expiry > ?
+        WHERE reset_token=%s AND reset_expiry > %s
     """, (token, datetime.utcnow())).fetchone()
     conn.close()
 
@@ -214,34 +213,30 @@ def reset_password():
     token = data.get("token")
     new_password = data.get("password")
 
-    # Guard: token must be present
     if not token:
         return jsonify({"success": False, "message": "Invalid request"})
 
-    # Validate password length (min 6 characters)
     if not new_password or len(new_password) < 6:
         return jsonify({"success": False, "message": "Password must be at least 6 characters"})
 
     conn = get_db()
     user = conn.execute("""
         SELECT id FROM users
-        WHERE reset_token=? AND reset_expiry > ?
+        WHERE reset_token=%s AND reset_expiry > %s
     """, (token, datetime.utcnow())).fetchone()
 
     if not user:
         conn.close()
         return jsonify({"success": False, "message": "Link expired or invalid"})
 
-    # FIX: Use bcrypt (same as login/signup) so login still works after reset
-    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt())
+    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
 
-    # Clear token after use — token is single-use
     conn.execute("""
         UPDATE users
-        SET password=?,
+        SET password=%s,
             reset_token=NULL,
             reset_expiry=NULL
-        WHERE id=?
+        WHERE id=%s
     """, (hashed, user["id"]))
 
     conn.commit()
@@ -251,13 +246,9 @@ def reset_password():
 
 
 def send_reset_email(to_email, reset_link):
-    # Use environment variable for API key; fall back to hardcoded value for dev
     BREVO_API_KEY = os.getenv("BREVO_API_KEY")
     SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "ansumanpatra200609@gmail.com")
 
-    print("API:", os.getenv("BREVO_API_KEY"))
-    print("Sender:", os.getenv("BREVO_SENDER_EMAIL"))
-    # Dev mode: no API key set → print link to terminal instead of sending email
     if not os.getenv("BREVO_API_KEY"):
         print("\n=== RESET LINK (dev mode) ===")
         print(reset_link)
@@ -302,8 +293,6 @@ def send_reset_email(to_email, reset_link):
     try:
         api_instance.send_transac_email(send_smtp_email)
     except ApiException as e:
-        # Log but do not crash the app
         print("Brevo error:", e)
     except Exception as e:
         print("Unexpected email error:", e)
-

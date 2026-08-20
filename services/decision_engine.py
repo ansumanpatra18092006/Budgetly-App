@@ -3,6 +3,7 @@
 # ============================================================
 # Fully integrated: shows goal impact, delay warnings,
 # savings rate effect, and goal-pressure-adjusted risk.
+# Migrated to PostgreSQL / Supabase (psycopg, dict_row).
 # ============================================================
 
 from utils.db import get_db
@@ -37,13 +38,13 @@ def evaluate_transaction(user_id: int, payload: dict) -> dict:
 
         # Wallet balance
         w = conn.execute(
-            "SELECT balance FROM wallets WHERE user_id=?", (user_id,)
+            "SELECT balance FROM wallets WHERE user_id=%s", (user_id,)
         ).fetchone()
         wallet_balance = float(w["balance"]) if w else 0.0
 
         # Historical expense amounts
         rows = conn.execute(
-            "SELECT amount FROM transactions WHERE user_id=? AND type='expense'",
+            "SELECT amount FROM transactions WHERE user_id=%s AND type='expense'",
             (user_id,)
         ).fetchall()
         history = [r["amount"] for r in rows]
@@ -52,7 +53,7 @@ def evaluate_transaction(user_id: int, payload: dict) -> dict:
         month_start = datetime.today().strftime("%Y-%m-01")
         cat_row = conn.execute("""
             SELECT SUM(amount) as total FROM transactions
-            WHERE user_id=? AND type='expense' AND category=? AND date>=?
+            WHERE user_id=%s AND type='expense' AND category=%s AND date>=%s
         """, (user_id, category, month_start)).fetchone()
         category_spent = cat_row["total"] or 0.0
 

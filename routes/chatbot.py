@@ -1,14 +1,14 @@
 """
 chatbot.py — Budgetly AI Financial Assistant (Streaming Edition)
 =================================================================
-Local LLM chatbot powered by Ollama (phi3 / mistral).
+Cloud LLM chatbot powered by Google Gemini.
 
 Design philosophy:
   - Python does ALL the financial math first — LLM only writes plain English
   - Intent-specific prompts so the model knows exactly what to say
   - Fast-path covers ~60% of questions with instant deterministic answers
     (fast-path responses are still streamed word-by-word for consistent UX)
-  - Replies are always 2–3 short sentences, skimmable at a glance
+  - Replies are always 2-3 short sentences, skimmable at a glance
   - No markdown, no jargon, no filler phrases
 
 Register in app.py:
@@ -21,12 +21,14 @@ from __future__ import annotations
 import json
 import re
 import time
+import random
 import traceback
 
 import requests
 from flask import Blueprint, Response, request, session, stream_with_context
 
 from routes.ai_insights import _fetch_full_metrics
+from services.gemini_service import stream_chat as gemini_stream_chat, GEMINI_MODEL
 from utils.db import get_db
 from utils.decorators import login_required
 
@@ -34,18 +36,43 @@ from utils.decorators import login_required
 # Config
 # ─────────────────────────────────────────────────────────────────
 
-chat_bp    = Blueprint("chat", __name__)
-OLLAMA_URL = "http://localhost:11434/api/chat"
+chat_bp = Blueprint("chat", __name__)
 
 # { user_id: [{role: ..., content: ...}, ...] }
 conversation_memory: dict[int, list[dict]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────
-# Intent detection  (unchanged)
+# Intent detection
 # ─────────────────────────────────────────────────────────────────
+GREETINGS = {
+    "hi", "hello", "hey", "yo", "hii",
+    "good morning", "good afternoon", "good evening"
+}
+
+SMALL_TALK = {
+    "how are you",
+    "what's up",
+    "whats up",
+    "how's it going",
+    "hows it going",
+    "who are you",
+    "what can you do",
+    "thanks",
+    "thank you"
+}
 
 _INTENT_MAP = [
+    # NEW: Conversational and greeting intents
+    ("greeting", [
+        "hi", "hello", "hey", "yo", "hii", "good morning", "good evening", "good afternoon"
+    ]),
+    
+    ("small_talk", [
+        "how are you", "what's up", "how's it going", "who are you", "what can you do", "thanks", "thank you"
+    ]),
+
+    # EXISTING: Financial intents
     ("affordability", [
         "afford", "can i buy", "can i afford", "can i get",
         "is it okay to buy", "should i buy"
@@ -90,14 +117,15 @@ def _detect_intent(message: str) -> str:
 
     for intent, keywords in _INTENT_MAP:
         for kw in keywords:
-            if kw in msg:
+            # Added word boundaries (\b) to prevent "hi" triggering inside "this"
+            if re.search(rf"\b{re.escape(kw)}\b", msg):
                 return intent
 
     return "general"
 
 
 # ─────────────────────────────────────────────────────────────────
-# Financial analysis  (unchanged)
+# Financial analysis  (unchanged logic)
 # ─────────────────────────────────────────────────────────────────
 
 def _analyse(metrics: dict, message: str, intent: str) -> dict:
@@ -169,10 +197,29 @@ def _analyse(metrics: dict, message: str, intent: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Fast-path  (unchanged logic — now streamed word-by-word)
+# Fast-path  (includes new conversational paths)
 # ─────────────────────────────────────────────────────────────────
 
 def _fast_path(intent: str, a: dict) -> str | None:
+    # NEW: Greeting fast-path without financial analysis
+    if intent == "greeting":
+        responses = [
+            "Hey! 👋 I'm Budgetly AI. How can I help today?",
+            "Hello! Need help with budgeting, spending, savings, goals, or a financial decision?",
+            "Hi there! What would you like to know?"
+        ]
+        return random.choice(responses)
+
+    # NEW: Small talk fast-path without financial analysis
+    if intent == "small_talk":
+        responses = [
+            "I'm doing great! I'm here to help you understand your finances and make smarter money decisions.",
+            "I can help with budgeting, spending analysis, savings goals, debt planning, and financial insights.",
+            "You're welcome! Let me know if you need help with anything financial."
+        ]
+        return random.choice(responses)
+
+    # EXISTING: Financial fast-paths
     if intent == "budget_status" and a["budget"] > 0:
         daily_safe = int(a["budget_left"] / max(a["days_left"], 1))
         if a["budget_verdict"] == "almost gone":
@@ -290,7 +337,7 @@ def _fast_path(intent: str, a: dict) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────────────
-# System prompt  (unchanged)
+# System prompt  (updated to be conversational & dynamic)
 # ─────────────────────────────────────────────────────────────────
 
 def _build_prompt(a: dict, intent: str, message: str) -> str:
@@ -301,6 +348,7 @@ def _build_prompt(a: dict, intent: str, message: str) -> str:
     if not goals_text:
         goals_text = "No active goals.\n"
 
+    # NEW: Contextual intent instructions
     intent_task = {
         "saving_advice": (
             f"The user wants to improve savings. Their savings rate is {a['savings_rate']:.0f}% "
@@ -311,25 +359,30 @@ def _build_prompt(a: dict, intent: str, message: str) -> str:
             f"The user has a monthly surplus of ₹{int(a['surplus']):,}. "
             f"Suggest a simple and realistic way to invest this amount for a beginner in India."
         ),
+        "greeting": "The user is greeting you. Respond naturally and ask how you can help with their finances. DO NOT mention financial stats.",
+        "small_talk": "The user is making casual conversation. Be friendly and chatty. DO NOT mention financial stats.",
         "general": (
-            "Answer the user's question using their real financial data clearly and practically."
+            "Answer the user's question practically. If it's a financial question, use their real financial data. "
+            "If it's casual conversation, prioritize natural conversation and DO NOT force financial metrics."
         ),
-    }.get(intent, "Answer using the user's financial data in a clear and practical way.")
+    }.get(intent, "Answer naturally. Use financial data only if the question is financial.")
 
     return f"""
-You are Budgetly AI, a smart and practical personal finance assistant.
+You are Budgetly AI, a friendly, smart, and conversational personal finance coach.
 
-Your job is to give short, clear, and useful financial advice based ONLY on the user's real data.
+Your job is to give short, clear, and useful financial advice or casually chat, depending on the user's prompt.
+Prioritize natural conversation for casual messages, and financial reasoning for financial queries.
 
 IMPORTANT RULES:
-- Write EXACTLY 3 sentences.
+- Write EXACTLY 2 to 3 sentences.
+- Be friendly and conversational, not overly formal or robotic.
 - Do NOT use labels like Observation, Action, or Benefit.
-- Use simple, natural English (like explaining to a friend).
-- Be specific and practical, not generic.
+- Use simple, natural English (like talking to a friend).
 - Use ₹ for money values.
-- Never invent numbers — only use the data given below.
+- Never invent numbers — use the data given below ONLY if relevant to the question.
+- NEVER force financial statistics into greetings or casual conversations.
 
-USER FINANCIAL DATA:
+USER FINANCIAL DATA (Use ONLY if the user asks a financial question):
 Income: ₹{int(a['income']):,}
 Expenses: ₹{int(a['expense']):,}
 Surplus: ₹{int(a['surplus']):,}
@@ -351,10 +404,8 @@ USER MESSAGE:
 {message}
 
 RESPONSE FORMAT:
-Write 3 sentences:
-1. Explain the current situation using real numbers.
-2. Suggest one clear action.
-3. Explain the benefit of that action.
+If financial: 1. Explain situation with numbers. 2. Suggest action. 3. Explain benefit.
+If casual/greeting: Be friendly and helpful without numbers.
 
 Your answer:
 """.strip()
@@ -394,12 +445,11 @@ def _trim_sentences(text: str, max_count: int = 3) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
-# SSE helpers
+# SSE helpers  (unchanged logic)
 # ─────────────────────────────────────────────────────────────────
 
 def _sse(event: str, data: str) -> str:
     """Format a single Server-Sent Event line."""
-    # Escape newlines inside the data field so SSE framing stays intact
     safe = data.replace("\n", "\\n")
     return f"event:{event}\ndata:{safe}\n\n"
 
@@ -408,78 +458,52 @@ def _stream_text(text: str, model_used: str = "instant"):
     """
     Yield a pre-computed string word-by-word as SSE tokens,
     then send a [DONE] event so the client knows it's finished.
-    Used for fast-path replies so the UX is identical to LLM streaming.
     """
     words = text.split(" ")
     yield _sse("token", "")
     for i, word in enumerate(words):
         chunk = word if i == 0 else " " + word
         yield _sse("token", chunk)
-        time.sleep(0.01)   # ~55 words/sec — feels natural, not laggy
+        time.sleep(0.01)
     yield _sse("done", json.dumps({"model_used": model_used}))
 
 
-def _stream_ollama(messages: list[dict], model: str, user_id: int, user_message: str):
+def _stream_gemini(messages: list[dict], model: str, user_id: int, user_message: str):
     """
-    Open an Ollama streaming request and yield tokens as SSE events.
+    Open a Gemini streaming request and yield tokens as SSE events.
     Accumulates the full reply, cleans it, then saves to memory.
     """
     full_reply = ""
     try:
-        with requests.post(
-            OLLAMA_URL,
-            json={
-                "model":    model,
-                "stream":   True,
-                "messages": messages,
-                "options": {
-                    "temperature":    0.2,
-                    "top_p":          0.85,
-                    "num_predict":    120,
-                    "repeat_penalty": 1.2,
-                    "stop": ["User:", "User said:", "\n\n\n"],
-                },
-            },
-            stream=True,
-            timeout=60,
-        ) as resp:
-            resp.raise_for_status()
-            for raw_line in resp.iter_lines():
-                if not raw_line:
-                    continue
-                try:
-                    obj = json.loads(raw_line)
-                except json.JSONDecodeError:
-                    continue
+        for token in gemini_stream_chat(messages, model=model):
+            token = token.replace("$", "₹")
+            token = re.sub(r"\*+", "", token)
+            token = re.sub(r"#+\s*", "", token)
+            full_reply += token
+            yield _sse("token", token)
 
-                token = obj.get("message", {}).get("content", "")
-                if token:
-                    # Apply light cleaning per-token (strip $ → ₹, markdown)
-                    token = token.replace("$", "₹")
-                    token = re.sub(r"\*+", "", token)
-                    token = re.sub(r"#+\s*", "", token)
-                    full_reply += token
-                    yield _sse("token", token)
-
-                if obj.get("done"):
-                    break
-
-        # Post-process the complete accumulated reply
         cleaned = _clean(full_reply)
         cleaned = _trim_sentences(cleaned, max_count=3)
 
-        # Save to memory
         history = conversation_memory.get(user_id, [])
         history.append({"role": "user",      "content": user_message})
         history.append({"role": "assistant", "content": cleaned})
         conversation_memory[user_id] = history[-12:]
 
+    except RuntimeError:
+        yield _sse("error", "Gemini API key is not configured. Set GEMINI_API_KEY in .env.")
+        model = "offline"
     except requests.exceptions.ConnectionError:
-        yield _sse("error", "Ollama is not running. Start it with: ollama serve")
+        yield _sse("error", "Couldn't reach Gemini — check your connection and try again.")
         model = "offline"
     except requests.exceptions.Timeout:
         yield _sse("error", "The response timed out — please try again.")
         model = "timeout"
+    except requests.exceptions.HTTPError as exc:
+        traceback.print_exc()
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        yield _sse("error", f"Gemini request failed ({status}) — please try again.")
+        model = "error"
     except Exception:
         traceback.print_exc()
         yield _sse("error", "Something went wrong — please try again in a moment.")
@@ -489,7 +513,7 @@ def _stream_ollama(messages: list[dict], model: str, user_id: int, user_message:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Main endpoint  — now returns text/event-stream
+# Main endpoint
 # ─────────────────────────────────────────────────────────────────
 
 @chat_bp.route("/chat", methods=["POST"])
@@ -508,18 +532,15 @@ def chat():
                         headers={"X-Accel-Buffering": "no",
                                  "Cache-Control": "no-cache"})
 
-    # ── Single DB call — all metrics at once ──────────────────────
     conn = get_db()
     try:
         metrics = _fetch_full_metrics(conn, user_id)
     finally:
         conn.close()
 
-    # ── Intent + pre-computed analysis ───────────────────────────
     intent = _detect_intent(message)
     a      = _analyse(metrics, message, intent)
 
-    # ── Fast-path: stream pre-computed answer word-by-word ────────
     fast_reply = _fast_path(intent, a)
     if fast_reply:
         return Response(
@@ -528,7 +549,6 @@ def chat():
             headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
         )
 
-    # ── LLM path ─────────────────────────────────────────────────
     system_prompt = _build_prompt(a, intent, message)
     history       = conversation_memory.get(user_id, [])
     messages      = [
@@ -536,10 +556,10 @@ def chat():
         *history[-12:],
         {"role": "user",   "content": message},
     ]
-    model = "phi3"
+    model = GEMINI_MODEL
 
     return Response(
-        stream_with_context(_stream_ollama(messages, model, user_id, message)),
+        stream_with_context(_stream_gemini(messages, model, user_id, message)),
         mimetype="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )

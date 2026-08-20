@@ -3,9 +3,11 @@ from utils.decorators import login_required
 from utils.db import get_db
 from datetime import datetime
 from difflib import SequenceMatcher
+from psycopg import sql
 import csv
 import io
 import re
+import time
 import logging
 
 from ml.category_model import predict_category
@@ -13,10 +15,16 @@ from ml.category_model import predict_category
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Debug Flag
+# Debug Flags
 # ---------------------------------------------------------------------------
 
 DEBUG_PARSER = False  # Set True locally for verbose parsing logs
+
+# Set True locally to log a per-phase timing breakdown of
+# /import-preview-transactions (request → validate → insert → commit →
+# response). Leave False in production; a single concise summary line
+# is always logged regardless (see _log_import_summary below).
+IMPORT_PROFILE = True
 
 def _pdebug(msg: str, *args) -> None:
     if DEBUG_PARSER:
@@ -627,6 +635,12 @@ def parse_upi_statement(text: str, user_id=None) -> list[dict]:
     else:
         raw_txns = _parse_gpay_blocks(text)
 
+    # 🔥 PERFORMANCE FIX: fetch user_category_map ONCE for this whole PDF,
+    # instead of once per transaction inside get_smart_category(). The
+    # in-memory map is then reused by every transaction below — merchant
+    # map / keyword / ML priority order is unchanged.
+    user_map = _fetch_user_category_map(user_id)
+
     transactions: list[dict] = []
     seen: set[tuple]         = set()
 
@@ -649,7 +663,7 @@ def parse_upi_statement(text: str, user_id=None) -> list[dict]:
             category = "Finance"
         else:
             try:
-                category = get_smart_category(user_id, tx["description"])
+                category = get_smart_category(user_id, tx["description"], user_map=user_map)
             except Exception:
                 logger.exception("get_smart_category failed for '%s'.", tx["description"])
                 category = "Misc"
@@ -677,17 +691,61 @@ def _fuzzy_ratio(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def get_smart_category(user_id, description: str) -> str:
+def _fetch_user_category_map(user_id):
+    """
+    Fetch the user's learned merchant → category mappings from
+    `user_category_map` ONE TIME.
+
+    Returns a list of row-like objects (each supporting row["merchant"]
+    / row["category"]), or [] on failure / missing user_id.
+
+    Callers that process many transactions in a single request (PDF
+    statement parsing, CSV import) call this ONCE up front and pass the
+    result into get_smart_category(..., user_map=...) for every
+    transaction, instead of letting get_smart_category hit the DB itself
+    for each transaction.
+    """
+    if user_id is None:
+        return []
+
+    conn = None
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT merchant, category FROM user_category_map WHERE user_id = %s",
+            (user_id,)
+        ).fetchall()
+        return rows
+    except Exception:
+        logger.exception("Failed to fetch user_category_map for user_id=%s.", user_id)
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_smart_category(user_id, description: str, user_map=None) -> str:
     """
     Smart category detection pipeline (robust + safe):
 
-    1. User-learned mapping (DB, substring + fuzzy)
+    1. User-learned mapping (substring + fuzzy)
     2. Global MERCHANT_MAP
     3. Keyword detection
     4. ML prediction
     5. Final fallback → "Misc"
 
     ALWAYS returns a valid category from ALLOWED_CATEGORIES
+
+    `user_map`: optional pre-fetched result of _fetch_user_category_map().
+    When provided, tier 1 uses it directly instead of querying the DB —
+    this is what lets batch callers (PDF/CSV import) fetch the mapping
+    ONCE per request and reuse it across every transaction. When omitted
+    (single-transaction call sites like add-transaction / suggest-category),
+    behavior is unchanged: the mapping is fetched here, per call, exactly
+    as before.
     """
 
     # ----------------------------
@@ -701,13 +759,11 @@ def get_smart_category(user_id, description: str) -> str:
     # 🥇 1. USER LEARNING
     # ----------------------------
     if user_id is not None:
-        conn = None
         try:
-            conn = get_db()
-            rows = conn.execute(
-                "SELECT merchant, category FROM user_category_map WHERE user_id = ?",
-                (user_id,)
-            ).fetchall()
+            # 🔥 Reuse a pre-fetched map when the caller supplied one;
+            # otherwise fall back to the original per-call DB fetch so
+            # single-transaction callers keep their existing behavior.
+            rows = user_map if user_map is not None else _fetch_user_category_map(user_id)
 
             FUZZY_THRESHOLD = 0.72
             best_ratio = 0.0
@@ -735,12 +791,6 @@ def get_smart_category(user_id, description: str) -> str:
 
         except Exception:
             logger.exception("Tier 1 (user learning) failed.")
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
 
     # ----------------------------
     # 🥈 2. MERCHANT MAP
@@ -841,10 +891,11 @@ def add_transaction():
     def _insert(conn):
         cur = conn.execute(
             "INSERT INTO transactions (user_id, description, amount, type, category, date) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "RETURNING id",
             (user_id, description, amount, t_type, category, date)
         )
-        return cur.lastrowid
+        return cur.fetchone()["id"]
 
     tid = _db_execute(_insert)
     return jsonify({"success": True, "id": tid})
@@ -860,19 +911,19 @@ def get_transactions():
     t_type   = request.args.get("type")
     search   = (request.args.get("search") or "").strip()
 
-    query  = "SELECT * FROM transactions WHERE user_id = ?"
+    query  = "SELECT * FROM transactions WHERE user_id = %s"
     params: list = [user_id]
 
     if start:
-        query += " AND date >= ?";  params.append(start)
+        query += " AND date >= %s";  params.append(start)
     if end:
-        query += " AND date <= ?";  params.append(end)
+        query += " AND date <= %s";  params.append(end)
     if category and category != "All":
-        query += " AND category = ?"; params.append(category)
+        query += " AND category = %s"; params.append(category)
     if t_type and t_type != "All":
-        query += " AND type = ?";   params.append(t_type)
+        query += " AND type = %s";   params.append(t_type)
     if search:
-        query += " AND LOWER(description) LIKE ?"; params.append(f"%{search.lower()}%")
+        query += " AND LOWER(description) LIKE %s"; params.append(f"%{search.lower()}%")
 
     query += " ORDER BY date DESC, id DESC"
 
@@ -890,7 +941,7 @@ def get_transactions():
 def delete_transaction(tid):
     def _delete(conn):
         cur = conn.execute(
-            "DELETE FROM transactions WHERE id = ? AND user_id = ?",
+            "DELETE FROM transactions WHERE id = %s AND user_id = %s",
             (tid, session["user_id"])
         )
         return cur.rowcount > 0
@@ -928,16 +979,17 @@ def update_transaction(tid):
     def _update(conn):
         cur = conn.execute(
             "UPDATE transactions "
-            "SET description=?, amount=?, category=?, type=?, date=? "
-            "WHERE id=? AND user_id=?",
+            "SET description=%s, amount=%s, category=%s, type=%s, date=%s "
+            "WHERE id=%s AND user_id=%s",
             (description, amount, category, t_type, date, tid, user_id)
         )
         if cur.rowcount == 0:
             return False
         # Persist user learning for future auto-detection
         conn.execute(
-            "INSERT OR REPLACE INTO user_category_map (user_id, merchant, category) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO user_category_map (user_id, merchant, category) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (user_id, merchant) DO UPDATE SET category = EXCLUDED.category",
             (user_id, normalize_text(description), category)
         )
         return True
@@ -952,7 +1004,7 @@ def update_transaction(tid):
 @login_required
 def clear_all_transactions():
     _db_execute(lambda conn: conn.execute(
-        "DELETE FROM transactions WHERE user_id = ?", (session["user_id"],)
+        "DELETE FROM transactions WHERE user_id = %s", (session["user_id"],)
     ))
     return jsonify({"success": True})
 
@@ -986,7 +1038,7 @@ def export_transactions():
     try:
         rows = conn.execute(
             "SELECT description, amount, type, category, date "
-            "FROM transactions WHERE user_id = ? ORDER BY date DESC, id DESC",
+            "FROM transactions WHERE user_id = %s ORDER BY date DESC, id DESC",
             (session["user_id"],)
         ).fetchall()
     finally:
@@ -1024,6 +1076,10 @@ def import_transactions():
         conn     = get_db()
         inserted = 0
 
+        # 🔥 PERFORMANCE FIX: fetch user_category_map ONCE for this whole
+        # CSV import instead of once per row inside get_smart_category().
+        user_map = _fetch_user_category_map(user_id)
+
         try:
             for row in reader:
                 description = (row.get("description") or "").strip()
@@ -1039,8 +1095,8 @@ def import_transactions():
 
                 if not category or category.lower() == "auto-detect":
                     try:
-                        category = get_smart_category(user_id, description)
-                        
+                        category = get_smart_category(user_id, description, user_map=user_map)
+
                     except Exception:
                         category = "Misc"
 
@@ -1049,7 +1105,7 @@ def import_transactions():
 
                 conn.execute(
                     "INSERT INTO transactions (user_id, description, amount, type, category, date) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
                     (user_id, description, amount, t_type, category, date)
                 )
                 inserted += 1
@@ -1114,7 +1170,7 @@ def upload_statement():
             for t in transactions:
                 conn.execute(
                     "INSERT INTO transactions (user_id, description, amount, type, category, date) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
                     (user_id, t["description"], t["amount"], t["type"], t["category"], t["date"])
                 )
             conn.commit()
@@ -1175,10 +1231,14 @@ def save_preview_transactions():
             if category not in ALLOWED_CATEGORIES:
                 category = "Misc"
 
+            # NOTE: relies on a UNIQUE constraint on transactions
+            # (user_id, description, amount, type, date) to dedupe,
+            # matching the previous SQLite "INSERT OR IGNORE" behavior.
             cur = conn.execute(
-                "INSERT OR IGNORE INTO transactions "
+                "INSERT INTO transactions "
                 "(user_id, description, amount, type, category, date) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT DO NOTHING",
                 (user_id, description, amount, t_type, category, date)
             )
             inserted += cur.rowcount
@@ -1188,3 +1248,211 @@ def save_preview_transactions():
         conn.close()
 
     return jsonify({"success": True, "count": inserted})
+
+
+_BULK_INSERT_COLUMNS = ("user_id", "description", "amount", "type", "category", "date")
+
+# PostgreSQL has a hard limit of 65535 bound parameters per statement.
+# 6 params/row → cap comfortably below that so even a single INSERT
+# statement never risks hitting the limit; a batch larger than this is
+# split into a small number of large statements (NOT per-row) within
+# the same transaction/commit.
+_BULK_INSERT_CHUNK_ROWS = 5000
+
+
+def _build_bulk_insert_query(n_rows: int):
+    """
+    Build ONE parameterized "INSERT ... VALUES (%s,...), (%s,...), ...
+    ON CONFLICT DO NOTHING RETURNING id" statement for `n_rows` rows,
+    using psycopg's sql.SQL/sql.Placeholder composition so structure
+    (column names, row count) is composed safely and no user data is
+    ever interpolated into the SQL text — only %s placeholders carry
+    values, exactly like every other query in this file.
+    """
+    row_placeholders = sql.SQL("({})").format(
+        sql.SQL(", ").join([sql.Placeholder()] * len(_BULK_INSERT_COLUMNS))
+    )
+    values_clause = sql.SQL(", ").join([row_placeholders] * n_rows)
+
+    return sql.SQL(
+        "INSERT INTO transactions ({columns}) "
+        "VALUES {values} "
+        "ON CONFLICT DO NOTHING "
+        "RETURNING id"
+    ).format(
+        columns=sql.SQL(", ").join(sql.Identifier(c) for c in _BULK_INSERT_COLUMNS),
+        values=values_clause,
+    )
+
+
+def _bulk_insert_transactions(conn, rows):
+    """
+    Insert `rows` — tuples of
+    (user_id, description, amount, type, category, date) — as ONE real
+    PostgreSQL bulk INSERT statement (chunked only if the batch is
+    large enough to risk the parameter-count limit), and report which
+    ones were actually inserted (vs. skipped as duplicates).
+
+    WHY THIS EXISTS (root-cause note):
+    The app runs on psycopg 3 (via utils/db.py), not psycopg2. An
+    earlier version of this function tried to import
+    `psycopg2.extras.execute_values()` for the fast path — that import
+    always fails here (psycopg2 isn't installed/used), so every import
+    silently fell through to a per-row `conn.execute()` loop: one
+    round trip AND one implicit statement per transaction. For a
+    500-row import that's ~500 sequential network round trips to
+    Postgres, which is exactly where the ~20s went. Wrapping that loop
+    in a single commit() never fixed it, because the cost was in the
+    N round trips during INSERT, not in the number of commits.
+
+    FIX: build a single "INSERT ... VALUES (r1), (r2), ..., (rN)"
+    statement (psycopg 3 natively supports this — no special bulk API
+    needed) and send it in ONE conn.execute() call. That's O(1) round
+    trips instead of O(n). All values are still passed as bound
+    parameters (never string-interpolated) via psycopg's sql.SQL /
+    sql.Placeholder composition.
+
+    ON CONFLICT DO NOTHING preserves the same duplicate-skip semantics
+    already used by /save-preview-transactions, relying on the
+    existing UNIQUE constraint on (user_id, description, amount, type,
+    date) — no per-row SELECT is needed to detect duplicates.
+
+    Returns: list of ids that were actually inserted (duplicates
+    excluded via RETURNING), so the caller can report an accurate
+    imported count. There is no fallback path — if the bulk statement
+    fails, the exception propagates so the caller can roll back the
+    whole batch (see import_preview_transactions).
+    """
+    inserted_ids = []
+
+    for start in range(0, len(rows), _BULK_INSERT_CHUNK_ROWS):
+        chunk = rows[start:start + _BULK_INSERT_CHUNK_ROWS]
+
+        query = _build_bulk_insert_query(len(chunk))
+        flat_params = [value for row in chunk for value in row]
+
+        # ONE statement for the whole chunk — not one execute() per row.
+        cur = conn.execute(query, flat_params)
+        inserted_ids.extend(r["id"] for r in cur.fetchall())
+
+    return inserted_ids
+
+
+@transactions_bp.route("/import-preview-transactions", methods=["POST"])
+@login_required
+def import_preview_transactions():
+    """
+    Bulk-insert the transactions the user has already reviewed/edited in
+    the PDF/CSV preview modal.
+
+    This endpoint receives ONLY the previewData JSON produced by
+    /upload-statement-preview (as edited by the user via editField() /
+    removeRow()) — it never receives or re-parses the original PDF, and
+    it never re-runs categorization. Whatever category/description/
+    amount/date/type is in each row is exactly what gets inserted.
+
+    Request body:
+        { "transactions": [ { description, amount, type, category, date }, ... ] }
+
+    All valid rows are inserted in a single DB transaction (one
+    round-trip-efficient bulk statement, see _bulk_insert_transactions);
+    if it fails, everything is rolled back and the preview modal should
+    stay open so the user can retry. Duplicates (matching an existing
+    row on user_id/description/amount/type/date) are silently skipped
+    via ON CONFLICT DO NOTHING, same as /save-preview-transactions.
+    """
+    t_start = time.perf_counter()
+
+    data    = request.get_json(force=True) or {}
+    txs     = data.get("transactions") or []
+    user_id = session["user_id"]
+    t_json  = time.perf_counter()
+
+    if not isinstance(txs, list) or not txs:
+        return jsonify({"success": False, "error": "No transactions provided."}), 400
+
+    today = datetime.today().strftime("%Y-%m-%d")
+    valid_rows = []
+
+    for t in txs:
+        if not isinstance(t, dict):
+            continue
+
+        description = (t.get("description") or "").strip()
+
+        try:
+            amount = float(t.get("amount") or 0)
+        except (ValueError, TypeError):
+            continue
+
+        t_type = (t.get("type") or "expense").strip().lower()
+        if t_type not in ("income", "expense"):
+            t_type = "expense"
+
+        category = (t.get("category") or "Misc").strip()
+        if category not in ALLOWED_CATEGORIES:
+            category = "Misc"
+
+        date = (t.get("date") or "").strip() or today
+
+        # Preserve existing validation rules (same as save-preview-transactions
+        # / import-transactions): non-empty description, positive amount.
+        if not description or amount <= 0:
+            continue
+
+        valid_rows.append((user_id, description, amount, t_type, category, date))
+
+    t_validated = time.perf_counter()
+
+    if not valid_rows:
+        return jsonify({"success": False, "error": "No valid transactions to import."}), 400
+
+    conn = get_db()
+    t_conn = time.perf_counter()
+
+    try:
+        inserted_ids = _bulk_insert_transactions(conn, valid_rows)
+        t_insert = time.perf_counter()
+
+        conn.commit()
+        t_commit = time.perf_counter()
+
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logger.exception("import_preview_transactions bulk insert failed.")
+        return jsonify({
+            "success": False,
+            "error": "Import failed. Nothing was saved — please try again."
+        }), 500
+    finally:
+        conn.close()
+
+    t_end = time.perf_counter()
+
+    imported = len(inserted_ids)
+    skipped_duplicates = len(valid_rows) - imported
+
+    if IMPORT_PROFILE:
+        logger.info(
+            "[IMPORT] json_parse=%.4fs validate=%.4fs db_connect=%.4fs "
+            "bulk_insert=%.4fs commit=%.4fs total=%.4fs rows_submitted=%d "
+            "rows_inserted=%d rows_duplicate=%d",
+            t_json - t_start, t_validated - t_json, t_conn - t_validated,
+            t_insert - t_conn, t_commit - t_insert, t_end - t_start,
+            len(valid_rows), imported, skipped_duplicates
+        )
+    else:
+        # Concise, production-safe perf log (always on).
+        logger.info(
+            "[IMPORT] imported=%d duplicates=%d total=%.3fs",
+            imported, skipped_duplicates, t_end - t_start
+        )
+
+    return jsonify({
+        "success": True,
+        "imported": imported,
+        "skipped_duplicates": skipped_duplicates
+    })

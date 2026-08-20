@@ -11,7 +11,6 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 REDIRECT_URI = "http://127.0.0.1:5000/google-callback"
 
-
 def get_google_cfg():
     return requests.get(DISCOVERY_URL).json()
 
@@ -56,17 +55,17 @@ def google_callback():
 
     conn = get_db()
     user = conn.execute(
-        "SELECT * FROM users WHERE email=?",
+        "SELECT * FROM users WHERE email=%s",
         (email,)
     ).fetchone()
 
     if not user:
         cursor = conn.execute(
-            "INSERT INTO users (name, email, password) VALUES (?, ?, '')",
+            "INSERT INTO users (name, email, password) VALUES (%s, %s, '') RETURNING id",
             (name, email)
         )
         conn.commit()
-        user_id = cursor.lastrowid
+        user_id = cursor.fetchone()["id"]
     else:
         user_id = user["id"]
 

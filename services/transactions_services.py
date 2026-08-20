@@ -4,10 +4,11 @@ def create_transaction(user_id, description, amount, t_type, category, date):
     conn = get_db()
     cursor = conn.execute("""
         INSERT INTO transactions (user_id, description, amount, type, category, date)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
     """, (user_id, description, amount, t_type, category, date))
+    tid = cursor.fetchone()["id"]
     conn.commit()
-    tid = cursor.lastrowid
     conn.close()
     return tid
 
@@ -15,7 +16,7 @@ def create_transaction(user_id, description, amount, t_type, category, date):
 def fetch_transactions(user_id):
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM transactions WHERE user_id=? ORDER BY date DESC, id DESC",
+        "SELECT * FROM transactions WHERE user_id=%s ORDER BY date DESC, id DESC",
         (user_id,)
     ).fetchall()
     conn.close()
@@ -25,7 +26,7 @@ def fetch_transactions(user_id):
 def delete_transaction(user_id, tid):
     conn = get_db()
     conn.execute(
-        "DELETE FROM transactions WHERE id=? AND user_id=?",
+        "DELETE FROM transactions WHERE id=%s AND user_id=%s",
         (tid, user_id)
     )
     conn.commit()
@@ -36,8 +37,8 @@ def update_transaction(user_id, tid, data):
     conn = get_db()
     conn.execute("""
         UPDATE transactions
-        SET description=?, amount=?, category=?, type=?, date=?
-        WHERE id=? AND user_id=?
+        SET description=%s, amount=%s, category=%s, type=%s, date=%s
+        WHERE id=%s AND user_id=%s
     """, (
         data["description"],
         data["amount"],
@@ -54,7 +55,7 @@ def update_transaction(user_id, tid, data):
 def clear_all_transactions(user_id):
     conn = get_db()
     conn.execute(
-        "DELETE FROM transactions WHERE user_id=?",
+        "DELETE FROM transactions WHERE user_id=%s",
         (user_id,)
     )
     conn.commit()

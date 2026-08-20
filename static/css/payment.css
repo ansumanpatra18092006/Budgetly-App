@@ -1,5 +1,5 @@
 /* ================================================================
-   payment.css  — Budgetly Payment Upgrade Styles
+   payment.css  — Budgetly Payment Styles
    Add <link rel="stylesheet" href="/static/css/payment.css">
    to index.html <head>.
 ================================================================ */
@@ -190,31 +190,6 @@
     line-height: 1.5;
 }
 
-/* ── Wallet chip ───────────────────────────────────────────────── */
-.pay-wallet-chip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.82rem;
-    color: var(--text-tertiary, rgba(255,255,255,0.50));
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    padding: 8px 14px;
-    margin-bottom: 20px;
-}
-
-.pay-wallet-chip i { color: var(--primary, #7c3aed); }
-
-.wallet-balance-display {
-    color: var(--text-primary, #f0e6ff);
-    font-family: var(--font-mono, monospace);
-    font-weight: 700;
-}
-
-.wallet-low  { color: var(--danger,  #ef4444) !important; }
-.wallet-ok   { color: var(--success, #10b981) !important; }
-
 /* ── Action buttons ────────────────────────────────────────────── */
 .pay-action-row {
     display: flex;
@@ -261,19 +236,11 @@
 .pay-btn span  { font-size: 0.88rem; font-weight: 700; color: #fff; }
 .pay-btn small { font-size: 0.7rem;  color: rgba(255,255,255,0.65); font-weight: 400; }
 
-.pay-btn-wallet {
-    background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
-    box-shadow: 0 8px 28px rgba(91, 33, 182, 0.45);
-}
-
 .pay-btn-upi {
     background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
     box-shadow: 0 8px 28px rgba(8, 145, 178, 0.40);
 }
 
-.pay-btn-wallet:hover:not(:disabled) {
-    box-shadow: 0 12px 36px rgba(91, 33, 182, 0.60);
-}
 .pay-btn-upi:hover:not(:disabled) {
     box-shadow: 0 12px 36px rgba(8, 145, 178, 0.55);
 }
@@ -321,142 +288,6 @@
 .upi-confirm-desc {
     font-size: 0.9rem;
     color: var(--text-secondary, rgba(255,255,255,0.65));
-}
-
-/* ── Top-up extras ─────────────────────────────────────────────── */
-.topup-balance-row {
-    font-size: 0.85rem;
-    color: var(--text-tertiary, rgba(255,255,255,0.50));
-    background: rgba(255,255,255,0.04);
-    border-radius: 10px;
-    padding: 10px 14px;
-    margin-bottom: 18px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.topup-quick-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 8px;
-}
-
-.topup-quick-label {
-    font-size: 0.78rem;
-    color: var(--text-tertiary, rgba(255,255,255,0.40));
-    flex-shrink: 0;
-}
-
-.topup-quick-chip {
-    background: rgba(124, 58, 237, 0.15);
-    border: 1px solid rgba(124, 58, 237, 0.30);
-    color: var(--primary, #a78bfa);
-    border-radius: 999px;
-    padding: 4px 14px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.18s, transform 0.18s;
-    font-family: var(--font-sans, sans-serif);
-}
-.topup-quick-chip:hover {
-    background: rgba(124, 58, 237, 0.28);
-    transform: scale(1.05);
-}
-
-/* ── Wallet history list ───────────────────────────────────────── */
-.wallet-history-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
-    list-style: none;
-    animation: staggerIn 0.32s var(--ease-spring, ease) both;
-}
-
-.wallet-history-loading {
-    color: var(--text-tertiary, rgba(255,255,255,0.40));
-    padding: 20px;
-    text-align: center;
-    font-size: 0.9rem;
-}
-
-/* ── Wallet widget (dashboard card area) ───────────────────────── */
-.wallet-widget {
-    background: linear-gradient(135deg, #0f0720 0%, #1a0a3a 50%, #0d1f3c 100%);
-    border: 1px solid rgba(124, 58, 237, 0.25);
-    border-radius: 20px;
-    padding: 22px;
-    position: relative;
-    overflow: hidden;
-}
-
-.wallet-widget::before {
-    content: '';
-    position: absolute;
-    width: 200px;
-    height: 200px;
-    border-radius: 50%;
-    top: -60px; right: -60px;
-    background: radial-gradient(circle, rgba(124,58,237,0.22) 0%, transparent 70%);
-    pointer-events: none;
-}
-
-.wallet-widget-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-}
-
-.wallet-widget-label {
-    font-size: 0.72rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.10em;
-    color: rgba(167, 139, 250, 0.80);
-}
-
-.wallet-widget-balance {
-    font-size: 2rem;
-    font-weight: 800;
-    font-family: var(--font-mono, monospace);
-    color: #fff;
-    letter-spacing: -0.03em;
-    margin-bottom: 18px;
-}
-
-.wallet-widget-actions {
-    display: flex;
-    gap: 10px;
-}
-
-.wallet-action-btn {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    padding: 10px 14px;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.07);
-    color: rgba(255,255,255,0.85);
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-family: var(--font-sans, sans-serif);
-}
-
-.wallet-action-btn:hover {
-    background: rgba(255,255,255,0.13);
-    border-color: rgba(255,255,255,0.22);
-    transform: translateY(-2px);
 }
 
 /* ── Responsive ────────────────────────────────────────────────── */

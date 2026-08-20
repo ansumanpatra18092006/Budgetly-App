@@ -4,14 +4,14 @@ def get_income_expense(user_id):
     conn = get_db()
 
     income = conn.execute(
-        "SELECT SUM(amount) FROM transactions WHERE user_id=? AND type='income'",
+        "SELECT SUM(amount) AS total FROM transactions WHERE user_id=%s AND type='income'",
         (user_id,)
-    ).fetchone()[0] or 0
+    ).fetchone()["total"] or 0
 
     expense = conn.execute(
-        "SELECT SUM(amount) FROM transactions WHERE user_id=? AND type='expense'",
+        "SELECT SUM(amount) AS total FROM transactions WHERE user_id=%s AND type='expense'",
         (user_id,)
-    ).fetchone()[0] or 0
+    ).fetchone()["total"] or 0
 
     conn.close()
     return income, expense
@@ -20,7 +20,7 @@ def get_income_expense(user_id):
 def get_budget(user_id):
     conn = get_db()
     row = conn.execute(
-        "SELECT amount FROM budgets WHERE user_id=?",
+        "SELECT amount FROM budgets WHERE user_id=%s",
         (user_id,)
     ).fetchone()
     conn.close()
@@ -29,9 +29,12 @@ def get_budget(user_id):
 
 def set_budget(user_id, amount):
     conn = get_db()
-    conn.execute(
-        "INSERT OR REPLACE INTO budgets (user_id, amount) VALUES (?, ?)",
-        (user_id, amount)
-    )
+    # NOTE: SQLite's "INSERT OR REPLACE" -> Postgres upsert via
+    # "INSERT ... ON CONFLICT (user_id) DO UPDATE". Requires a
+    # UNIQUE/PRIMARY KEY constraint on budgets.user_id.
+    conn.execute("""
+        INSERT INTO budgets (user_id, amount) VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET amount = EXCLUDED.amount
+    """, (user_id, amount))
     conn.commit()
     conn.close()

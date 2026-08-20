@@ -1,89 +1,71 @@
 """
 utils/db.py
-SQLite helper for Budgetly.
+PostgreSQL helper for Budgetly (Supabase).
 
-init_db() is safe to call on every startup:
-  - Creates tables that don't exist yet.
-  - Migrates the goals table to add target_date / created_at if absent.
+MIGRATION NOTES (SQLite -> PostgreSQL):
+- Parameter placeholders: '?' becomes '%s'
+- Insert IDs: 'cursor.lastrowid' is removed. Use 'RETURNING id' combined with 'cursor.fetchone()["id"]'
+- Row factory: 'sqlite3.Row' is replaced by 'dict_row' (psycopg) to preserve dictionary-like access.
 """
 
-import sqlite3
+import os
+import psycopg
+from psycopg.rows import dict_row
+from contextlib import contextmanager
 
-DATABASE = "budget.db"
+# Read from environment
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL not configured")
 
 def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
+    """
+    Establishes and returns a connection to Supabase PostgreSQL.
+    """
+    # dict_row ensures results act like sqlite3.Row (dictionary-like access).
+    # autocommit=False ensures we manually commit transactions, preserving the 
+    # original SQLite transaction boundaries and preventing partial data writes.
+    conn = psycopg.connect(
+        DATABASE_URL,
+        row_factory=dict_row,
+        autocommit=False
+    )
     return conn
 
-
 def init_db():
-    conn = get_db()
-
-    # ── Core tables ──────────────────────────────────────────────
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            name     TEXT,
-            email    TEXT UNIQUE,
-            password TEXT
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS transactions (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     INTEGER,
-            description TEXT,
-            amount      REAL,
-            type        TEXT,
-            category    TEXT,
-            date        TEXT
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS budgets (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER UNIQUE,
-            amount  REAL
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS goals (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id       INTEGER,
-            name          TEXT,
-            target_amount REAL,
-            saved_amount  REAL DEFAULT 0,
-            category      TEXT,
-            target_date   TEXT,
-            created_at    TEXT
-        )
-    """)
-
-    conn.commit()
-
-    # ── Runtime migrations ────────────────────────────────────────
-    # Adds columns to existing databases that were created before these
-    # fields existed.  ALTER TABLE ADD COLUMN is idempotent-safe when
-    # wrapped in a try/except (SQLite raises OperationalError if the
-    # column already exists).
-
-    _add_column_if_missing(conn, "goals", "target_date", "TEXT")
-    _add_column_if_missing(conn, "goals", "created_at",  "TEXT")
-
-    conn.commit()
-    conn.close()
-
-
-def _add_column_if_missing(conn, table: str, column: str, col_type: str) -> None:
-    """Add *column* to *table* if it does not already exist."""
+    """
+    Verifies the database connection on startup.
+    Schema creation is managed externally via Supabase SQL Editor.
+    """
     try:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        with get_db() as conn:
+            conn.execute("SELECT 1")
+            
+        print("✅ Connected to Supabase PostgreSQL")
+        
     except Exception:
-        # Column already present — nothing to do.
-        pass
+        print("❌ Supabase connection failed")
+        raise
+
+@contextmanager
+def db_cursor():
+    """
+    Context manager for robust database transaction handling.
+    Automatically handles yielding the cursor, committing on success,
+    rolling back on failure, and safely closing the connection.
+    
+    Usage:
+        with db_cursor() as cursor:
+            cursor.execute("SELECT * FROM users")
+    """
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            yield cur
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

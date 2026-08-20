@@ -30,7 +30,7 @@ def get_recommendations(user_id: int) -> list[str]:
                 COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
                 COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
             FROM transactions
-            WHERE user_id=? AND date>=?
+            WHERE user_id=%s AND date>=%s
         """, (user_id, month_start)).fetchone()
 
         income  = float(row["income"]  or 0)
@@ -38,7 +38,7 @@ def get_recommendations(user_id: int) -> list[str]:
         surplus = income - expense
 
         budget_row = conn.execute(
-            "SELECT amount FROM budgets WHERE user_id=?", (user_id,)
+            "SELECT amount FROM budgets WHERE user_id=%s", (user_id,)
         ).fetchone()
         budget = float(budget_row["amount"]) if budget_row else 0.0
 
@@ -47,7 +47,7 @@ def get_recommendations(user_id: int) -> list[str]:
             SELECT COALESCE(category,'Misc') AS category,
                    SUM(amount) AS total
             FROM transactions
-            WHERE user_id=? AND type='expense' AND date>=?
+            WHERE user_id=%s AND type='expense' AND date>=%s
             GROUP BY category ORDER BY total DESC LIMIT 1
         """, (user_id, month_start)).fetchone()
 
@@ -57,15 +57,15 @@ def get_recommendations(user_id: int) -> list[str]:
         # ── Goals data ───────────────────────────────────────────
         goal_rows = conn.execute("""
             SELECT name, target_amount, saved_amount, target_date
-            FROM goals WHERE user_id=? ORDER BY id ASC
+            FROM goals WHERE user_id=%s ORDER BY id ASC
         """, (user_id,)).fetchall()
 
         # ── Average monthly cash flow (3 months) ─────────────────
         hist = conn.execute("""
-            SELECT strftime('%Y-%m',date) AS month,
+            SELECT to_char(date, 'YYYY-MM') AS month,
                    SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS inc,
                    SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS exp
-            FROM transactions WHERE user_id=?
+            FROM transactions WHERE user_id=%s
             GROUP BY month ORDER BY month DESC LIMIT 3
         """, (user_id,)).fetchall()
 

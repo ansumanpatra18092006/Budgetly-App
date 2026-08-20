@@ -5,6 +5,8 @@ introduced by the payment upgrade.  All operations are idempotent.
 
 Called from app.py:  from utils.db_migrate import run_migrations
                      run_migrations()
+
+Migrated to PostgreSQL / Supabase (psycopg, dict_row).
 """
 
 from utils.db import get_db
@@ -15,7 +17,6 @@ def run_migrations():
     try:
         _create_wallets(conn)
         _create_wallet_transactions(conn)
-        _create_ledger(conn)
         _patch_transactions_status(conn)
         conn.commit()
         print("[migrate] All migrations applied.")
@@ -28,9 +29,9 @@ def run_migrations():
 def _create_wallets(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS wallets (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,
             user_id    INTEGER UNIQUE NOT NULL,
-            balance    REAL    NOT NULL DEFAULT 0,
+            balance    NUMERIC NOT NULL DEFAULT 0,
             updated_at TEXT,
             FOREIGN KEY(user_id) REFERENCES users(id)
         )
@@ -40,10 +41,10 @@ def _create_wallets(conn):
 def _create_wallet_transactions(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS wallet_transactions (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,
             sender_id   INTEGER,
             receiver_id INTEGER,
-            amount      REAL    NOT NULL,
+            amount      NUMERIC NOT NULL,
             note        TEXT,
             status      TEXT    NOT NULL DEFAULT 'completed',
             created_at  TEXT    NOT NULL,
@@ -62,29 +63,12 @@ def _create_wallet_transactions(conn):
     """)
 
 
-def _create_ledger(conn):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ledger (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id        INTEGER NOT NULL,
-            transaction_id INTEGER NOT NULL,
-            hash           TEXT    NOT NULL,
-            prev_hash      TEXT    NOT NULL,
-            timestamp      TEXT    NOT NULL,
-            FOREIGN KEY(user_id)        REFERENCES users(id),
-            FOREIGN KEY(transaction_id) REFERENCES transactions(id)
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_ledger_user
-        ON ledger(user_id)
-    """)
-
-
 def _patch_transactions_status(conn):
     """Add status column to transactions table if absent."""
-    try:
-        conn.execute("ALTER TABLE transactions ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'")
-        print("[migrate] Added status column to transactions.")
-    except Exception:
-        pass  # already exists
+    # PostgreSQL supports IF NOT EXISTS on ADD COLUMN (9.6+), so no
+    # try/except-on-duplicate-column dance (sqlite3 needed) is required.
+    conn.execute(
+        "ALTER TABLE transactions "
+        "ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'completed'"
+    )
+    print("[migrate] Ensured status column exists on transactions.")

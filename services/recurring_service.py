@@ -8,13 +8,14 @@ def get_recurring_suggestions(user_id):
     current_month = today.strftime("%Y-%m")
 
     # Get transactions grouped by description + amount
+    # NOTE: strftime('%d', date) -> EXTRACT(DAY FROM date::date)
     rows = conn.execute("""
         SELECT description, amount, COUNT(*) as cnt,
-               AVG(strftime('%d', date)) as avg_day
+               AVG(EXTRACT(DAY FROM date::date)) as avg_day
         FROM transactions
-        WHERE user_id=? AND type='expense'
+        WHERE user_id=%s AND type='expense'
         GROUP BY description, amount
-        HAVING cnt >= 2
+        HAVING COUNT(*) >= 2
     """, (user_id,)).fetchall()
 
     suggestions = []
@@ -25,11 +26,12 @@ def get_recurring_suggestions(user_id):
         expected_day = int(float(r["avg_day"]))
 
         # Check if already added this month
+        # NOTE: strftime('%Y-%m', date) -> to_char(date::date, 'YYYY-MM')
         exists = conn.execute("""
             SELECT 1 FROM transactions
-            WHERE user_id=? AND type='expense'
-            AND description=? AND amount=?
-            AND strftime('%Y-%m', date)=?
+            WHERE user_id=%s AND type='expense'
+            AND description=%s AND amount=%s
+            AND to_char(date::date, 'YYYY-MM')=%s
         """, (user_id, description, amount, current_month)).fetchone()
 
         if exists:

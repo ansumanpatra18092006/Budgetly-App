@@ -273,6 +273,335 @@
     .btn-primary { background: var(--primary); box-shadow: none; }
 }
 
+/* ================================================================
+   ANOMALIES — Compact spending-outlier UI
+================================================================ */
+.anomaly-panel { min-height: 0; }
+
+.anomaly-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.anomaly-title {
+    font-size: 1rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}
+
+.anomaly-title i { color: var(--danger); }
+
+.anomaly-count-pill {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: var(--danger);
+    background: var(--danger-light);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius-full);
+    padding: 4px 12px;
+    white-space: nowrap;
+}
+
+.anomaly-subtitle {
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    margin-bottom: var(--spacing-md);
+}
+
+/* ── Summary stat chips ───────────────────────────────────────── */
+.anomaly-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: var(--spacing-md);
+}
+
+.anomaly-stat {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 10px 8px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.anomaly-stat-value {
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+}
+
+.anomaly-stat-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+}
+
+/* ── Category filter chips ────────────────────────────────────── */
+.anomaly-filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: var(--spacing-md);
+}
+
+.anomaly-filter-chip {
+    padding: 5px 13px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    font-weight: 700;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: all var(--t-fast);
+    white-space: nowrap;
+}
+
+.anomaly-filter-chip:hover { border-color: var(--primary-border); color: var(--primary); background: var(--primary-light); }
+
+.anomaly-filter-chip.active {
+    background: var(--grad-brand);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: var(--shadow-sm);
+}
+
+.anomaly-no-match {
+    font-size: 0.85rem;
+    color: var(--text-tertiary);
+    padding: var(--spacing-md) 0;
+}
+
+/* ── Anomaly list & compact card ──────────────────────────────── */
+.anomaly-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.anomaly-card {
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--text-muted);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    overflow: hidden;
+    transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.anomaly-card.severity-high   { border-left-color: var(--danger); }
+.anomaly-card.severity-medium { border-left-color: var(--warning); }
+.anomaly-card.severity-low    { border-left-color: var(--success); }
+
+.anomaly-card:hover { box-shadow: var(--shadow-sm); }
+
+.anomaly-card-head {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font-sans);
+    color: inherit;
+}
+
+.anomaly-severity-badge {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+}
+
+.severity-high   .anomaly-severity-badge { background: var(--danger-light);  color: var(--danger);  border: 1px solid var(--danger-border); }
+.severity-medium .anomaly-severity-badge { background: var(--warning-light); color: var(--warning); border: 1px solid var(--warning-border); }
+.severity-low    .anomaly-severity-badge { background: var(--success-light); color: var(--success); border: 1px solid var(--success-border); }
+
+.anomaly-card-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.anomaly-card-category {
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.anomaly-card-txn {
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+
+.anomaly-card-figures {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.anomaly-card-amount {
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 0.92rem;
+    color: var(--text-primary);
+}
+
+.anomaly-card-deviation {
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
+.anomaly-card-toggle {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+.anomaly-card-chevron { font-size: 0.65rem; transition: transform var(--t-base); }
+.anomaly-card.expanded .anomaly-card-chevron { transform: rotate(180deg); }
+
+/* ── Expandable details (grid-rows collapse trick) ────────────── */
+.anomaly-card-details {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--t-spring);
+}
+
+.anomaly-card.expanded .anomaly-card-details { grid-template-rows: 1fr; }
+
+.anomaly-card-details-inner {
+    overflow: hidden;
+    min-height: 0;
+    padding: 0 12px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.anomaly-card.expanded .anomaly-card-details-inner {
+    padding: 10px 12px 12px;
+}
+
+.anomaly-detail-reason { margin-bottom: 8px; }
+
+.anomaly-detail-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+}
+
+.anomaly-detail-reason p {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin-top: 3px;
+    line-height: 1.45;
+}
+
+.anomaly-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.anomaly-detail-grid > div {
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.anomaly-detail-grid span {
+    font-size: 0.64rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-tertiary);
+}
+
+.anomaly-detail-grid strong {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-primary);
+}
+
+/* ── Show more ─────────────────────────────────────────────────── */
+.anomaly-show-more {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 9px;
+    border-radius: var(--radius-md);
+    border: 1px dashed var(--border-medium);
+    background: var(--bg-tertiary);
+    color: var(--primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: all var(--t-fast);
+}
+
+.anomaly-show-more:hover { background: var(--primary-light); border-color: var(--primary-border); }
+
+/* ── Empty state ───────────────────────────────────────────────── */
+.anomaly-empty {
+    text-align: center;
+    padding: var(--spacing-lg) var(--spacing-md);
+    color: var(--success);
+}
+
+.anomaly-empty i { font-size: 2rem; display: block; margin-bottom: 8px; }
+.anomaly-empty h3 { font-size: 0.95rem; font-weight: 800; color: var(--success); margin-bottom: 4px; }
+.anomaly-empty p { font-size: 0.82rem; color: var(--text-tertiary); }
+
+/* ── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .anomaly-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .anomaly-stat { padding: 8px 4px; }
+    .anomaly-stat-value { font-size: 0.92rem; }
+    .anomaly-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
+    .anomaly-card-head { flex-wrap: wrap; row-gap: 6px; }
+    .anomaly-card-main { min-width: 55%; }
+    .anomaly-card-toggle { margin-left: auto; }
+    .anomaly-detail-grid { grid-template-columns: 1fr 1fr; }
+}
+
 .recurring-modal {
   position: fixed;
   inset: 0;

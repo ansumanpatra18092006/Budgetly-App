@@ -2,10 +2,12 @@
 # FILE: routes/ai_insights.py  [UNIFIED FINANCIAL INTELLIGENCE]
 # ============================================================
 
-from flask import Blueprint, jsonify, session
+from flask import Blueprint, jsonify, session, request
 from utils.db import get_db
 from utils.decorators import login_required
 from datetime import datetime, date, timedelta
+import math
+import re
 
 ai_insights_bp = Blueprint("ai_insights", __name__)
 
@@ -49,7 +51,7 @@ def _fetch_full_metrics(conn, user_id):
         SELECT
             COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
-        FROM transactions WHERE user_id=? AND date>=?
+        FROM transactions WHERE user_id=%s AND date>=%s
     """, (user_id, cur_start)).fetchone()
 
     # ── Previous month ───────────────────────────────────────────
@@ -57,42 +59,42 @@ def _fetch_full_metrics(conn, user_id):
         SELECT
             COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
-        FROM transactions WHERE user_id=? AND date>=? AND date<=?
+        FROM transactions WHERE user_id=%s AND date>=%s AND date<=%s
     """, (user_id, prev_start, prev_end)).fetchone()
 
     # ── Budget ───────────────────────────────────────────────────
     budget_row = conn.execute(
-        "SELECT COALESCE(amount,0) AS amount FROM budgets WHERE user_id=?",
+        "SELECT COALESCE(amount,0) AS amount FROM budgets WHERE user_id=%s",
         (user_id,)
     ).fetchone()
 
     # ── Top spending category ────────────────────────────────────
     top_cat = conn.execute("""
         SELECT COALESCE(category,'Misc') AS category, SUM(amount) AS total
-        FROM transactions WHERE user_id=? AND type='expense' AND date>=?
+        FROM transactions WHERE user_id=%s AND type='expense' AND date>=%s
         GROUP BY category ORDER BY total DESC LIMIT 1
     """, (user_id, cur_start)).fetchone()
 
     # ── Goals with full detail ───────────────────────────────────
     goal_rows = conn.execute(
         """SELECT id, name, target_amount, saved_amount, category, target_date
-           FROM goals WHERE user_id=? ORDER BY id ASC""",
+           FROM goals WHERE user_id=%s ORDER BY id ASC""",
         (user_id,)
     ).fetchall()
 
     # ── Monthly cash flow (last 3 months for forecasting) ────────
     hist_rows = conn.execute("""
-        SELECT strftime('%Y-%m',date) AS month,
+        SELECT to_char(date,'YYYY-MM') AS month,
                SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS inc,
                SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS exp
-        FROM transactions WHERE user_id=?
+        FROM transactions WHERE user_id=%s
         GROUP BY month ORDER BY month DESC LIMIT 3
     """, (user_id,)).fetchall()
 
     # ── Anomaly count (last 30 days) ─────────────────────────────
     recent_amounts_row = conn.execute("""
         SELECT amount FROM transactions
-        WHERE user_id=? AND type='expense' ORDER BY date ASC
+        WHERE user_id=%s AND type='expense' ORDER BY date ASC
     """, (user_id,)).fetchall()
 
     # ═══════════════════════════════════════════════════════════
@@ -545,17 +547,17 @@ def behavioral_patterns():
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT strftime('%Y-%m',date) AS month,
+            SELECT to_char(date,'YYYY-MM') AS month,
                    COALESCE(category,'Misc') AS category,
                    SUM(amount) AS total
-            FROM transactions WHERE user_id=? AND type='expense'
+            FROM transactions WHERE user_id=%s AND type='expense'
             GROUP BY month, category ORDER BY month DESC
         """, (user_id,)).fetchall()
         rate_rows = conn.execute("""
-            SELECT strftime('%Y-%m',date) AS month,
+            SELECT to_char(date,'YYYY-MM') AS month,
                    COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END),0) AS income,
                    COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
-            FROM transactions WHERE user_id=? GROUP BY month ORDER BY month DESC LIMIT 4
+            FROM transactions WHERE user_id=%s GROUP BY month ORDER BY month DESC LIMIT 4
         """, (user_id,)).fetchall()
     finally:
         _safe_close(conn)
@@ -631,7 +633,202 @@ def behavioral_patterns():
     return jsonify({"patterns": dedup[:5]})
 
 
-# ── 7. RECURRING DETECTION V2 ────────────────────────────────────────
+# ── 7. RECURRING DETECTION V2 (confidence-scored) ───────────────────
+#
+# Groups a user's expense transactions by normalized merchant/description
+# and scores each group on several independent signals of "genuinely
+# recurring financial obligation" rather than merely "seen >=2 times":
+#
+#   - occurrence_count / month_count  : enough history to trust the pattern
+#   - amount stability (CV)           : recurring bills charge ~the same amount
+#   - day-of-month stability          : recurring bills land on ~the same day
+#   - interval regularity             : gaps between charges are ~monthly
+#   - category/merchant suitability   : subscriptions/utilities/insurance/
+#                                        loans/rent/telecom/memberships are
+#                                        favored; groceries, restaurants,
+#                                        shopping, P2P transfers, and misc
+#                                        spend are excluded unless the
+#                                        description itself names a bill
+#                                        (e.g. "Rent" sent via P2P transfer)
+#
+# Hard evidence gates reject weak candidates outright; everything that
+# passes the gates gets a 0-1 confidence score from a weighted blend of
+# the signals above, and only candidates at/above CONFIDENCE_THRESHOLD
+# are returned. Handled-state filtering (dismissed/added) is applied
+# AFTER candidate generation, per design.
+
+CONFIDENCE_THRESHOLD = 0.60
+
+MIN_OCCURRENCES  = 3      # at least 3 charges
+MIN_MONTHS       = 3      # ideally across 3 distinct months
+MAX_AMOUNT_CV    = 0.35   # amount coefficient of variation ceiling
+MAX_DAY_STDEV    = 10.0   # day-of-month standard deviation ceiling (days)
+INTERVAL_MIN     = 20     # avg gap between charges must look ~monthly
+INTERVAL_MAX     = 40
+
+SUBSCRIPTION_KEYWORDS = {
+    "netflix", "spotify", "prime video", "amazon prime", "hotstar",
+    "disney", "youtube premium", "youtube music", "apple music",
+    "gym", "membership", "subscription", "icloud", "google one",
+}
+BILL_KEYWORDS = {
+    "electricity", "water bill", "gas bill", "insurance", "loan", "emi",
+    "rent", "broadband", "wifi", "internet", "telecom", "postpaid",
+    "mobile bill", "dth", "jio", "airtel", "vodafone", "vi ", "phone bill",
+}
+RECURRING_CATEGORIES = {
+    "subscription", "subscriptions", "utilities", "utility", "telecom",
+    "insurance", "loan", "loans", "emi", "membership", "memberships", "rent",
+}
+EXCLUDED_CATEGORIES = {
+    "groceries", "grocery", "restaurant", "dining", "food", "shopping",
+    "p2p", "transfer", "personal", "misc", "miscellaneous", "other",
+    "stationery",
+}
+
+
+def _mean(vals):
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def _stdev(vals):
+    if len(vals) < 2:
+        return 0.0
+    m = _mean(vals)
+    return math.sqrt(sum((v - m) ** 2 for v in vals) / len(vals))
+
+
+def _classify(description, category):
+    desc_l = (description or "").lower()
+    cat_l  = (category or "").lower().strip()
+    is_subscription_kw = any(kw in desc_l for kw in SUBSCRIPTION_KEYWORDS)
+    is_bill_kw          = any(kw in desc_l for kw in BILL_KEYWORDS)
+
+    if cat_l in {"subscription", "subscriptions"} or is_subscription_kw:
+        return "subscription", True
+    if cat_l in RECURRING_CATEGORIES or is_bill_kw:
+        return "bill", True
+    if cat_l in {"transfer", "p2p"} and (is_subscription_kw or is_bill_kw):
+        return "recurring_transfer", True
+    return "recurring_payment", False  # generic; whitelisted-ness handled by caller
+
+
+def _score_candidate(description, category, dates, amounts, today):
+    """
+    dates: list of datetime.date, sorted ascending
+    amounts: list of float, same order as dates
+    Returns (confidence, avg_day, due_window, month_count, recurrence_type)
+    or None if it fails a hard gate.
+    """
+    occurrence_count = len(dates)
+    months = {d.strftime("%Y-%m") for d in dates}
+    month_count = len(months)
+
+    if occurrence_count < MIN_OCCURRENCES or month_count < MIN_MONTHS:
+        return None
+
+    avg_amount = _mean(amounts)
+    amount_cv  = (_stdev(amounts) / avg_amount) if avg_amount > 0 else 1.0
+    if amount_cv > MAX_AMOUNT_CV:
+        return None
+
+    days = [d.day for d in dates]
+    avg_day    = _mean(days)
+    day_stdev  = _stdev(days)
+    if day_stdev > MAX_DAY_STDEV:
+        return None
+
+    intervals = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
+    avg_interval = _mean(intervals) if intervals else 30
+    if not (INTERVAL_MIN <= avg_interval <= INTERVAL_MAX):
+        return None
+
+    cat_l = (category or "").lower().strip()
+    desc_l = (description or "").lower()
+    keyword_hit = any(kw in desc_l for kw in SUBSCRIPTION_KEYWORDS | BILL_KEYWORDS)
+
+    # Hard category gate: excluded categories (groceries, restaurants,
+    # shopping, P2P, misc, ...) are rejected unless the description itself
+    # names a bill/subscription (e.g. a P2P "Rent" transfer).
+    if cat_l in EXCLUDED_CATEGORIES and not keyword_hit:
+        return None
+
+    recurrence_type, whitelisted = _classify(description, category)
+    if whitelisted:
+        category_score = 1.0
+    elif cat_l in EXCLUDED_CATEGORIES:
+        category_score = 0.0  # unreachable due to gate above, kept for clarity
+    else:
+        category_score = 0.5  # neutral/unlabeled category, not excluded either
+
+    occurrence_score = min(1.0, occurrence_count / 6.0)
+    month_score       = min(1.0, month_count / 6.0)
+    amount_score       = max(0.0, 1.0 - (amount_cv / MAX_AMOUNT_CV))
+    day_score          = max(0.0, 1.0 - (day_stdev / MAX_DAY_STDEV))
+    interval_score     = max(0.0, 1.0 - abs(avg_interval - 30) / 15.0)
+
+    confidence = (
+        occurrence_score * 0.15 +
+        month_score       * 0.15 +
+        amount_score       * 0.20 +
+        day_score           * 0.15 +
+        interval_score       * 0.15 +
+        category_score       * 0.20
+    )
+
+    if confidence < CONFIDENCE_THRESHOLD:
+        return None
+
+    # Preserve the ±5-day "due soon" window only when the historical
+    # evidence is strong (tight day-of-month clustering); widen slightly
+    # for looser-but-still-passing patterns, capped at 10 days.
+    due_window = 5 if day_stdev <= 3 else min(10, int(round(day_stdev)) + 5)
+
+    return round(confidence, 2), int(round(avg_day)), due_window, month_count, recurrence_type
+
+
+def _build_recurring_candidates(conn, user_id):
+    """Fetch raw expense transactions and score each merchant group."""
+    rows = conn.execute("""
+        SELECT description, amount, COALESCE(category,'Misc') AS category, date::date AS date
+        FROM transactions
+        WHERE user_id=%s AND type='expense'
+        ORDER BY date ASC
+    """, (user_id,)).fetchall()
+
+    groups = {}
+    for r in rows:
+        key = re.sub(r"\s+", " ", (r["description"] or "").strip().lower())
+        if not key:
+            continue
+        g = groups.setdefault(key, {"description": r["description"], "category": r["category"],
+                                     "dates": [], "amounts": []})
+        g["dates"].append(r["date"])
+        g["amounts"].append(float(r["amount"]))
+        g["category"] = r["category"] or g["category"]  # most recent category wins
+
+    candidates = []
+    for key, g in groups.items():
+        scored = _score_candidate(g["description"], g["category"], g["dates"], g["amounts"], date.today())
+        if not scored:
+            continue
+        confidence, avg_day, due_window, month_count, recurrence_type = scored
+        candidates.append({
+            "key":              key,
+            "description":      g["description"],
+            "category":         g["category"],
+            "amount":           round(_mean(g["amounts"]), 2),
+            "avg_day":          avg_day,
+            "due_window":       due_window,
+            "month_count":      month_count,
+            "confidence":       confidence,
+            "recurrence_type":  recurrence_type,
+        })
+
+    candidates.sort(key=lambda c: c["confidence"], reverse=True)
+    return candidates
+
+
 @ai_insights_bp.route("/recurring-suggestions-v2")
 @login_required
 def recurring_suggestions_v2():
@@ -641,38 +838,87 @@ def recurring_suggestions_v2():
     this_month = today.strftime("%Y-%m")
 
     try:
-        rows = conn.execute("""
-            SELECT description, COALESCE(category,'Misc') AS category,
-                   ROUND(AVG(amount),2) AS avg_amount,
-                   COUNT(DISTINCT strftime('%Y-%m',date)) AS month_count,
-                   AVG(CAST(strftime('%d',date) AS INTEGER)) AS avg_day
-            FROM transactions WHERE user_id=? AND type='expense'
-            GROUP BY LOWER(TRIM(description)) HAVING month_count>=2 ORDER BY avg_amount DESC
-        """, (user_id,)).fetchall()
+        candidates = _build_recurring_candidates(conn, user_id)
 
         added = set(
             r["description"].lower().strip()
             for r in conn.execute("""
                 SELECT description FROM transactions
-                WHERE user_id=? AND type='expense' AND strftime('%Y-%m',date)=?
+                WHERE user_id=%s AND type='expense' AND to_char(date,'YYYY-MM')=%s
+            """, (user_id, this_month)).fetchall()
+        )
+
+        # Suggestions the user has already dismissed or added for this
+        # occurrence period (persisted so a page refresh / dashboard
+        # revisit does not re-prompt for the same occurrence).
+        handled = set(
+            r["suggestion_key"]
+            for r in conn.execute("""
+                SELECT suggestion_key FROM recurring_suggestion_state
+                WHERE user_id=%s AND occurrence_period=%s
+                AND status IN ('dismissed','added')
             """, (user_id, this_month)).fetchall()
         )
     finally:
         _safe_close(conn)
 
     out = []
-    for r in rows:
-        avg_day = int(r["avg_day"] or 15)
-        if abs(today.day - avg_day) > 5:
+    for c in candidates:
+        # Due-soon eligibility window: only surface bills that are
+        # actually due around now, using the confidence-adjusted window.
+        if abs(today.day - c["avg_day"]) > c["due_window"]:
             continue
-        if r["description"].lower().strip() in added:
+        # Handled-state filtering happens AFTER candidate generation.
+        if c["key"] in added or c["key"] in handled:
             continue
         out.append({
-            "description": r["description"],
-            "amount":      float(r["avg_amount"]),
-            "category":    r["category"],
-            "avg_day":     avg_day,
-            "month_count": int(r["month_count"]),
+            "description":       c["description"],
+            "amount":            c["amount"],
+            "category":          c["category"],
+            "avg_day":           c["avg_day"],
+            "month_count":       c["month_count"],
+            "confidence":        c["confidence"],
+            "recurrence_type":   c["recurrence_type"],
+            "occurrence_period": this_month,
         })
 
     return jsonify(out[:5])
+
+
+# ── 8. RECURRING SUGGESTION STATE (persist handled/dismissed) ───────
+@ai_insights_bp.route("/recurring-suggestions-v2/mark", methods=["POST"])
+@login_required
+def mark_recurring_suggestion():
+    """
+    Persists that a recurring-suggestion occurrence has been handled
+    (added or dismissed) so it is not shown again for that occurrence
+    period, across page reloads and dashboard revisits. The underlying
+    recurring detection is untouched — once a new occurrence period
+    arrives (e.g. next month), the suggestion becomes eligible again
+    because this row only applies to the specific occurrence_period.
+    """
+    data = request.get_json(silent=True) or {}
+    description       = (data.get("description") or "").strip()
+    occurrence_period = (data.get("occurrence_period") or "").strip()
+    status             = (data.get("status") or "").strip()
+
+    if not description or not occurrence_period or status not in ("dismissed", "added"):
+        return jsonify({"error": "description, occurrence_period and a valid status are required"}), 400
+
+    suggestion_key = description.lower().strip()
+    user_id = session["user_id"]
+
+    conn = get_db()
+    try:
+        conn.execute("""
+            INSERT INTO recurring_suggestion_state
+                (user_id, suggestion_key, occurrence_period, status, handled_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id, suggestion_key, occurrence_period)
+            DO UPDATE SET status = EXCLUDED.status, handled_at = NOW()
+        """, (user_id, suggestion_key, occurrence_period, status))
+        conn.commit()
+    finally:
+        _safe_close(conn)
+
+    return jsonify({"ok": True})

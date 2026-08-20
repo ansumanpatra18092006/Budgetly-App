@@ -2,9 +2,11 @@
 
 /* ================================================================
    TRANSACTIONS.JS  — Full rewrite
-   Aligned to: index.html · payment_modals.html · wallet_widget.html
-               wallet.js  · wallet.py  · preview.py
-               ledger_service.py · integration_patches.js
+   Aligned to: index.html · payment_modals.html · preview.py
+
+   Budgetly does not hold user money. Every expense is settled
+   externally (the user's own UPI app); this file only previews
+   the financial impact and then records the outcome.
 
    ── ID MAP ──────────────────────────────────────────────────────
    Add form
@@ -24,8 +26,6 @@
      #previewBudgetAfter    budget-used stat
      #previewSavingsAfter   savings-rate stat
      #previewGoalImpact     goal note paragraph
-     #previewWalletBtn      "Pay with Wallet" (disabled when balance < amount)
-     .wallet-balance-display  all elements updated by wallet.js
 
    UPI confirm modal  (#upiConfirmModal)  — payment_modals.html §2
      #upiConfirmAmount      amount display
@@ -42,11 +42,6 @@
      closePreview() previewData  → all defined in inline <script>,
      NOT redefined here.  getCategoryOptions() is defined here
      because the inline script calls it.
-
-   External helpers (integration_patches.js / wallet.js)
-     openWalletHistoryPanel()   closeWalletHistoryPanel()
-     checkLedgerIntegrity()     loadWalletBalance()
-     getWalletBalance()         initWallet()
 ================================================================ */
 
 
@@ -189,7 +184,7 @@ async function submitTransaction(e) {
 
    Response shape:
      { warning, level, new_surplus, budget_after,
-       savings_rate_after, goal_impact, wallet_balance,
+       savings_rate_after, goal_impact,
        current_expense, current_surplus, budget }
 ================================================================ */
 function _showPreviewModal(preview) {
@@ -317,21 +312,6 @@ function _showPreviewModal(preview) {
     }
 
     /* =========================
-       WALLET BUTTON (KEEP LOGIC)
-    ========================= */
-    const walletBtn = document.getElementById('previewWalletBtn');
-    if (walletBtn && _pendingTx) {
-        const balance = preview.wallet_balance ?? 0;
-
-        const canPay = balance >= _pendingTx.amount;
-
-        walletBtn.disabled = !canPay;
-        walletBtn.title = canPay
-            ? ''
-            : `Insufficient wallet balance (₹${_fmt(balance)} available)`;
-    }
-
-    /* =========================
        KEEP ANIMATION (IMPORTANT)
     ========================= */
     const sheet = modal.querySelector('.pay-sheet');
@@ -350,42 +330,6 @@ function closePreviewModal() {
     _pendingTx = null;
 }
 
-
-/* ================================================================
-   WALLET PAYMENT FLOW
-   Button: #previewWalletBtn  onclick="proceedWithWallet()"
-   Backend: POST /wallet-pay-transaction  (preview.py)
-================================================================ */
-async function proceedWithWallet() {
-    if (!_pendingTx) return;
-    closePreviewModal();
-
-    try {
-        const res = await authFetch('/wallet-pay-transaction', {
-            method: 'POST',
-            body: JSON.stringify(_pendingTx),
-        });
-
-        if (!res || !res.ok) throw new Error('Wallet payment rejected');
-
-        showNotification('Paid via Wallet ✅', 'success');
-
-        /* Refresh wallet balance display across all chips */
-        if (typeof loadWalletBalance === 'function') await loadWalletBalance();
-
-        _afterSuccess();
-
-    } catch (err) {
-        console.error("Wallet payment failed:", err);
-
-        showNotification(
-            err.message || "Wallet payment failed. Please use UPI or add balance.",
-            "error"
-        );
-
-        return;   // ❌ STOP HERE — DO NOT SAVE
-    }
-}
 
 
 /* ================================================================
@@ -490,14 +434,13 @@ async function _directSave(payload) {
 
 /* ================================================================
    POST-SUCCESS CLEANUP
-   Runs after every successful save path (wallet / UPI / direct).
+   Runs after every successful save path (UPI / direct).
 ================================================================ */
 function _afterSuccess() {
     _resetForm();
     _pendingTx = null;
 
-    /* Refresh dashboard (triggers initWallet + checkLedgerIntegrity
-       via the patch in integration_patches.js → dashboard.js)    */
+    /* Refresh dashboard totals and charts */
     loadDashboard();
 
     /* Switch to history after a short delay */
@@ -617,6 +560,136 @@ function getCategoryOptions(selected) {
 
 
 /* ================================================================
+   PDF / CSV IMPORT — confirmImport()
+   ----------------------------------------------------------------
+   NOTE ON SCOPE: `previewData`, `showPreview()`, `editField()`,
+   `removeRow()`, and `closePreview()` live in the inline <script>
+   in index.html, not in this file (see header comment above). This
+   file only has access to routes/transactions.py and
+   static/js/transactions.js, so the fix below is implemented as a
+   drop-in replacement for confirmImport(): remove the old
+   confirmImport() function body from the inline <script> in
+   index.html and either delete it there or leave it removed, since
+   this file now defines window.confirmImport and will be the one
+   that runs (as long as this <script src="transactions.js"> tag is
+   loaded AFTER the inline script, which is already required today
+   since the inline script calls getCategoryOptions() from this
+   file). If your <script> tags are ordered the other way, move this
+   block into the inline <script> instead — the logic is unchanged.
+
+   OLD BEHAVIOR (being replaced): confirmImport() re-sent the PDF/CSV
+   file (or re-triggered a parse) when importing, so the statement
+   was parsed once for preview and again for import.
+
+   NEW BEHAVIOR: confirmImport() sends the already-parsed,
+   already-reviewed `previewData` array straight to the dedicated
+   bulk-import endpoint. The backend never sees the PDF again and
+   never re-runs categorization — whatever the user edited in the
+   preview table is exactly what gets imported.
+================================================================ */
+
+let _importInFlight = false;
+
+// Set true locally to log a step-by-step timing breakdown of the
+// Import All flow (click → request → response → preview closed →
+// history/dashboard refresh). Leave false in production.
+const IMPORT_PROFILE = false;
+
+/**
+ * Called by the "Import All" button in the CSV/PDF preview modal.
+ * Sends window.previewData (as reviewed/edited by the user via
+ * editField()/removeRow()) to POST /import-preview-transactions.
+ */
+async function confirmImport() {
+    if (_importInFlight) return;
+
+    const _t0 = performance.now();
+    const _tlog = (label) => {
+        if (IMPORT_PROFILE) {
+            console.log(`[IMPORT UI] ${label}: ${((performance.now() - _t0) / 1000).toFixed(3)}s`);
+        }
+    };
+
+    // previewData is maintained by showPreview()/editField()/removeRow()
+    // in the inline <script>. It's read here via window.previewData so
+    // this function works regardless of how it was declared there.
+    const rows = window.previewData || (typeof previewData !== 'undefined' ? previewData : null);
+
+    if (!rows || !rows.length) {
+        showNotification('No transactions to import', 'error');
+        return;
+    }
+
+    const importBtn = document.getElementById('confirmImportBtn')
+        || document.getElementById('importAllBtn');
+
+    _importInFlight = true;
+    if (importBtn) {
+        setButtonLoading(importBtn, 'Importing…');
+        importBtn.disabled = true;
+    }
+
+    _tlog('import clicked');
+
+    try {
+        const res = await authFetch('/import-preview-transactions', {
+            method: 'POST',
+            body: JSON.stringify({ transactions: rows }),
+        });
+        _tlog('response received');
+
+        if (!res || !res.ok) {
+            const errData = await res?.json().catch(() => null);
+            throw new Error(errData?.error || 'Import failed');
+        }
+
+        const data = await res.json();
+        const count = data.imported ?? data.count ?? rows.length;
+
+        showNotification(`Imported ${count} transaction${count === 1 ? '' : 's'} ✅`, 'success');
+
+        // Close the preview modal as soon as the server confirms success —
+        // do NOT wait on history/dashboard refresh first.
+        if (typeof closePreview === 'function') {
+            closePreview();
+        } else {
+            document.getElementById('previewModal')?.classList.add('hidden');
+        }
+        _tlog('preview closed');
+
+        // Refresh transaction history / dashboard ASYNCHRONOUSLY —
+        // intentionally not awaited, so a slow dashboard/history fetch
+        // never delays the user seeing "Imported X transactions" or
+        // blocks the modal from closing. Errors here are non-fatal to
+        // the import, which already succeeded server-side.
+        if (typeof loadHistory === 'function') {
+            Promise.resolve(loadHistory())
+                .then(() => _tlog('history refresh completed'))
+                .catch(err => console.warn('loadHistory failed after import:', err));
+        }
+        if (typeof loadDashboard === 'function') {
+            Promise.resolve(loadDashboard())
+                .then(() => _tlog('dashboard refresh completed'))
+                .catch(err => console.warn('loadDashboard failed after import:', err));
+        }
+
+    } catch (err) {
+        console.error('confirmImport failed:', err);
+        showNotification(err.message || 'Import failed — please try again', 'error');
+        // Keep the preview modal open on failure so the user can retry.
+    } finally {
+        _importInFlight = false;
+        if (importBtn) {
+            resetButton(importBtn, 'Import All');
+            importBtn.disabled = false;
+        }
+    }
+}
+
+window.confirmImport = confirmImport;
+
+
+/* ================================================================
    PRIVATE UTILITIES
 ================================================================ */
 
@@ -638,7 +711,6 @@ function _fmt(n) {
 }
 
 
-window.proceedWithWallet = proceedWithWallet;
 window.proceedWithUPI = proceedWithUPI;
 window.confirmUPISuccess = confirmUPISuccess;
 window.cancelUPIPayment = cancelUPIPayment;

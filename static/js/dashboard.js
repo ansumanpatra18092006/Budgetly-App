@@ -136,26 +136,60 @@ async function loadTopCategories() {
     }
 }
 
+/**
+ * Render one stat-card trend footer.
+ * @param {string} selector    CSS selector for the .stat-trend element
+ * @param {object} trend       { status: 'ok'|'insufficient_data', change: number|null }
+ * @param {string} emptyText   Text shown when there's no meaningful data
+ * @param {boolean} invert     If true, an increase is shown as negative (used for expenses)
+ */
+function renderTrend(selector, trend, emptyText, invert = false) {
+    const el = document.querySelector(selector);
+    if (!el) return;
+
+    if (!trend || trend.status !== 'ok' || trend.change === null || trend.change === undefined) {
+        el.className = 'stat-trend neutral';
+        el.innerHTML = `<i class="fa-solid fa-minus" aria-hidden="true"></i> ${emptyText}`;
+        return;
+    }
+
+    const change = trend.change;
+    const isIncrease = change >= 0;
+    const isGood = invert ? !isIncrease : isIncrease;
+    const arrow = isIncrease ? 'fa-arrow-up' : 'fa-arrow-down';
+
+    el.className = `stat-trend ${isGood ? 'positive' : 'negative'}`;
+    el.innerHTML = `<i class="fa-solid ${arrow}" aria-hidden="true"></i> ${Math.abs(change)}% vs last month`;
+}
+
+function renderTrendError(selector) {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    el.className = 'stat-trend neutral';
+    el.innerHTML = `<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Unable to load trend`;
+}
+
 async function loadBalanceTrend() {
     const res = await authFetch('/balance-trend');
-    if (!res) return;
+    if (!res) {
+        renderTrendError('.stat-balance .stat-trend');
+        renderTrendError('.stat-income .stat-trend');
+        renderTrendError('.stat-expense .stat-trend');
+        return;
+    }
 
     try {
         const data = await res.json();
         const d = data.data ?? data;
-        const change = d.change ?? 0;
-        const trendEl = document.querySelector('.stat-balance .stat-trend');
-        if (!trendEl) return;
 
-        if (change >= 0) {
-            trendEl.className = 'stat-trend positive';
-            trendEl.innerHTML = `<i class="fa-solid fa-arrow-up" aria-hidden="true"></i> +${change}% vs last month`;
-        } else {
-            trendEl.className = 'stat-trend negative';
-            trendEl.innerHTML = `<i class="fa-solid fa-arrow-down" aria-hidden="true"></i> ${change}% vs last month`;
-        }
+        renderTrend('.stat-balance .stat-trend', d.balance, 'No activity this month');
+        renderTrend('.stat-income .stat-trend', d.income, 'No income this month');
+        renderTrend('.stat-expense .stat-trend', d.expense, 'No expenses this month', /* invert */ true);
     } catch (e) {
         console.error('loadBalanceTrend parse error', e);
+        renderTrendError('.stat-balance .stat-trend');
+        renderTrendError('.stat-income .stat-trend');
+        renderTrendError('.stat-expense .stat-trend');
     }
 }
 
@@ -258,60 +292,6 @@ async function renderTrendChart() {
     }
 }
 
-let recurringData = [];
-let currentRecurringIndex = 0;
-
-async function checkRecurring() {
-    const res = await fetch('/recurring-suggestions', {
-        credentials: 'include'
-    });
-
-    recurringData = await res.json();
-
-    if (!recurringData.length) return;
-
-    currentRecurringIndex = 0;
-    showRecurringPopup();
-}
-
-function showRecurringPopup() {
-    const item = recurringData[currentRecurringIndex];
-
-    document.getElementById('recurringText').innerText =
-        `You usually pay ₹${item.amount} for ${item.description}. Add it now?`;
-
-    document.getElementById('recurringModal').classList.remove('hidden');
-}
-
-document.getElementById('recurringYes').addEventListener('click', async () => {
-    const item = recurringData[currentRecurringIndex];
-
-    await fetch('/add-transaction', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-            description: item.description,
-            amount: item.amount,
-            type: 'expense'
-        })
-    });
-
-    document.getElementById('recurringModal').classList.add('hidden');
-
-    currentRecurringIndex++;
-
-    if (currentRecurringIndex < recurringData.length) {
-        showRecurringPopup();
-    } else {
-        location.reload();
-    }
-});
-
-document.getElementById('recurringNo').addEventListener('click', () => {
-    document.getElementById('recurringModal').classList.add('hidden');
-});
-
-window.addEventListener('load', () => {
-    checkRecurring();
-});
+/* Recurring-expense suggestions are now handled exclusively by the
+   single V2 popup system in ai_insights.js (#recurringPopupV2),
+   triggered once per page load from loadAllAIFeatures() below. */

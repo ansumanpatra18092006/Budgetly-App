@@ -3,7 +3,10 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 
-load_dotenv()
+from dotenv import load_dotenv, find_dotenv
+
+print("DOTENV FILE:", find_dotenv())
+load_dotenv(find_dotenv(), override=True)
 
 from utils.db import init_db, get_db
 from utils.db_migrate import run_migrations
@@ -17,7 +20,6 @@ from routes.insights import insights_bp
 from routes.oauth import oauth_bp
 from routes.chatbot import chat_bp
 from routes.ai_insights import ai_insights_bp
-from routes.wallet import wallet_bp
 from routes.preview import preview_bp
 
 # ─────────────────────────────────────────────────────────
@@ -34,10 +36,10 @@ CORS(
 )
 
 # 🍪 Session config (IMPORTANT for production)
-app.config.update(
-    SESSION_COOKIE_SAMESITE="None",
-    SESSION_COOKIE_SECURE=True
-)
+# app.config.update(
+#     SESSION_COOKIE_SAMESITE="Lax",
+#     SESSION_COOKIE_SECURE=False
+# )
 
 # ── SQLite DB setup (SAFE for deployment) ────────────────
 try:
@@ -56,7 +58,6 @@ app.register_blueprint(goals_bp)
 app.register_blueprint(insights_bp)
 app.register_blueprint(chat_bp)
 app.register_blueprint(ai_insights_bp)
-app.register_blueprint(wallet_bp)
 app.register_blueprint(preview_bp)
 
 # ── page routes ───────────────────────────────────────────

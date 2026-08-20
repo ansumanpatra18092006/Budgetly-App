@@ -18,11 +18,11 @@ wallet_bp = Blueprint("wallet", __name__, url_prefix="/wallet")
 def _get_or_create_wallet(conn, user_id: int) -> float:
     """Return current balance, creating a zero-balance wallet if needed."""
     row = conn.execute(
-        "SELECT balance FROM wallets WHERE user_id = ?", (user_id,)
+        "SELECT balance FROM wallets WHERE user_id = %s", (user_id,)
     ).fetchone()
     if row is None:
         conn.execute(
-            "INSERT INTO wallets (user_id, balance) VALUES (?, 0)", (user_id,)
+            "INSERT INTO wallets (user_id, balance) VALUES (%s, 0)", (user_id,)
         )
         conn.commit()
         return 0.0
@@ -61,7 +61,7 @@ def topup():
     try:
         _get_or_create_wallet(conn, user_id)
         conn.execute(
-            "UPDATE wallets SET balance = balance + ? WHERE user_id = ?",
+            "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
             (amount, user_id)
         )
 
@@ -69,21 +69,24 @@ def topup():
         cur = conn.execute(
             """INSERT INTO wallet_transactions
                (sender_id, receiver_id, amount, note, status, created_at)
-               VALUES (NULL, ?, ?, 'Top-up', 'completed', ?)""",
+               VALUES (NULL, %s, %s, 'Top-up', 'completed', %s)
+               RETURNING id""",
             (user_id, amount, datetime.utcnow().isoformat())
         )
-        wtx_id = cur.lastrowid
+        wtx_id = cur.fetchone()["id"]
 
         # Mirror as an income transaction so it appears in history
         tx_cur = conn.execute(
             """INSERT INTO transactions
                (user_id, description, amount, type, category, date, status)
-               VALUES (?, 'Wallet Top-up', ?, 'income', 'Finance', ?, 'completed')""",
+               VALUES (%s, 'Wallet Top-up', %s, 'income', 'Finance', %s, 'completed')
+               RETURNING id""",
             (user_id, amount, datetime.utcnow().strftime("%Y-%m-%d"))
         )
+        tx_id = tx_cur.fetchone()["id"]
         conn.commit()
 
-        append_ledger(conn, user_id, tx_cur.lastrowid)
+        append_ledger(conn, user_id, tx_id)
         conn.commit()
     finally:
         conn.close()
@@ -114,7 +117,7 @@ def send():
     try:
         # ── resolve receiver ──────────────────────────────────────
         receiver = conn.execute(
-            "SELECT id FROM users WHERE LOWER(email) = ?", (receiver_email,)
+            "SELECT id FROM users WHERE LOWER(email) = %s", (receiver_email,)
         ).fetchone()
         if not receiver:
             return jsonify({"success": False, "message": "Receiver not found"}), 404
@@ -135,11 +138,11 @@ def send():
 
         # ── atomic debit / credit ─────────────────────────────────
         conn.execute(
-            "UPDATE wallets SET balance = balance - ? WHERE user_id = ?",
+            "UPDATE wallets SET balance = balance - %s WHERE user_id = %s",
             (amount, sender_id)
         )
         conn.execute(
-            "UPDATE wallets SET balance = balance + ? WHERE user_id = ?",
+            "UPDATE wallets SET balance = balance + %s WHERE user_id = %s",
             (amount, receiver_id)
         )
 
@@ -147,30 +150,35 @@ def send():
         cur = conn.execute(
             """INSERT INTO wallet_transactions
                (sender_id, receiver_id, amount, note, status, created_at)
-               VALUES (?, ?, ?, ?, 'completed', ?)""",
+               VALUES (%s, %s, %s, %s, 'completed', %s)
+               RETURNING id""",
             (sender_id, receiver_id, amount, note, now.isoformat())
         )
-        wtx_id = cur.lastrowid
+        wtx_id = cur.fetchone()["id"]
 
         # Debit transaction for sender
         tx_cur = conn.execute(
             """INSERT INTO transactions
                (user_id, description, amount, type, category, date, status)
-               VALUES (?, ?, ?, 'expense', 'Finance', ?, 'completed')""",
+               VALUES (%s, %s, %s, 'expense', 'Finance', %s, 'completed')
+               RETURNING id""",
             (sender_id, note, amount, now.strftime("%Y-%m-%d"))
         )
+        tx_id = tx_cur.fetchone()["id"]
         conn.commit()
-        append_ledger(conn, sender_id, tx_cur.lastrowid)
+        append_ledger(conn, sender_id, tx_id)
 
         # Credit transaction for receiver
         rx_cur = conn.execute(
             """INSERT INTO transactions
                (user_id, description, amount, type, category, date, status)
-               VALUES (?, ?, ?, 'income', 'Finance', ?, 'completed')""",
+               VALUES (%s, %s, %s, 'income', 'Finance', %s, 'completed')
+               RETURNING id""",
             (receiver_id, f"Received: {note}", amount, now.strftime("%Y-%m-%d"))
         )
+        rx_id = rx_cur.fetchone()["id"]
         conn.commit()
-        append_ledger(conn, receiver_id, rx_cur.lastrowid)
+        append_ledger(conn, receiver_id, rx_id)
         conn.commit()
 
     finally:
@@ -197,7 +205,7 @@ def history():
                FROM wallet_transactions wt
                LEFT JOIN users su ON su.id = wt.sender_id
                LEFT JOIN users ru ON ru.id = wt.receiver_id
-               WHERE wt.sender_id = ? OR wt.receiver_id = ?
+               WHERE wt.sender_id = %s OR wt.receiver_id = %s
                ORDER BY wt.created_at DESC
                LIMIT 50""",
             (user_id, user_id)

@@ -1,14 +1,15 @@
 """
 routes/preview.py
-Transaction preview, UPI confirm, and ledger verify endpoints.
+Transaction preview and UPI confirm endpoints.
 
-These are additive — no existing route is modified.
+Budgetly does not hold user money. Payment is always external
+(the user's own UPI app); Budgetly only records the outcome and
+its financial impact.
 """
 
 from flask import Blueprint, jsonify, request, session
 from utils.db import get_db
 from utils.decorators import login_required
-from services.ledger_service import append_ledger, verify_chain
 from datetime import datetime, timedelta
 
 preview_bp = Blueprint("preview", __name__)
@@ -26,17 +27,17 @@ def _current_metrics(conn, user_id: int) -> dict:
         """SELECT
                COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
                COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
-           FROM transactions WHERE user_id=? AND date>=? AND status!='failed'""",
+           FROM transactions WHERE user_id=%s AND date>=%s AND status!='failed'""",
         (user_id, cur_start)
     ).fetchone()
 
     budget_row = conn.execute(
-        "SELECT COALESCE(amount,0) AS amount FROM budgets WHERE user_id=?",
+        "SELECT COALESCE(amount,0) AS amount FROM budgets WHERE user_id=%s",
         (user_id,)
     ).fetchone()
 
     goals = conn.execute(
-        "SELECT name, target_amount, saved_amount FROM goals WHERE user_id=?",
+        "SELECT name, target_amount, saved_amount FROM goals WHERE user_id=%s",
         (user_id,)
     ).fetchall()
 
@@ -75,7 +76,6 @@ def preview_transaction():
           budget_after   : float,        # % of budget used after this tx
           savings_rate_after : float,    # % savings rate after
           goal_impact    : str | null,   # human-readable goal note
-          wallet_balance : float,
         }
     """
     data    = request.get_json(silent=True) or {}
@@ -90,13 +90,6 @@ def preview_transaction():
 
     try:
         m = _current_metrics(conn, user_id)
-
-        # Wallet balance
-        wallet_row = conn.execute(
-            "SELECT balance FROM wallets WHERE user_id=?", (user_id,)
-        ).fetchone()
-        wallet_balance = float(wallet_row["balance"]) if wallet_row else 0.0
-
     finally:
         conn.close()
 
@@ -171,14 +164,6 @@ def preview_transaction():
                     f"covers only {round(new_surplus/total_left*100)}% of your total goal gap."
                 )
 
-        # Wallet sufficiency note
-        if wallet_balance < amount:
-            wallet_note = (
-                f"Wallet balance (₹{wallet_balance:,.0f}) is insufficient — "
-                "UPI or top-up required."
-            )
-            goal_impact = wallet_note if not goal_impact else f"{goal_impact} {wallet_note}"
-
     # Level guard
     level_map = {"low": 0, "medium": 1, "high": 2}
     if level not in level_map:
@@ -191,7 +176,6 @@ def preview_transaction():
         "budget_after":        budget_after,
         "savings_rate_after":  savings_rate_after,
         "goal_impact":         goal_impact,
-        "wallet_balance":      wallet_balance,
         "current_expense":     round(m["expense"], 2),
         "current_surplus":     round(m["surplus"], 2),
         "budget":              round(m["budget"], 2),
@@ -207,7 +191,7 @@ def preview_transaction():
 def confirm_upi_transaction():
     """
     User confirmed payment was completed in their UPI app.
-    Save the transaction as 'completed' and append to ledger.
+    Save the transaction as 'completed'.
 
     Body: { description, amount, category, date?, upi_ref? }
     """
@@ -240,135 +224,13 @@ def confirm_upi_transaction():
         cur = conn.execute(
             """INSERT INTO transactions
                (user_id, description, amount, type, category, date, status)
-               VALUES (?, ?, ?, 'expense', ?, ?, 'completed')""",
+               VALUES (%s, %s, %s, 'expense', %s, %s, 'completed')
+               RETURNING id""",
             (user_id, note, amount, category, date)
         )
-        tx_id = cur.lastrowid
-        conn.commit()
-
-        append_ledger(conn, user_id, tx_id)
+        tx_id = cur.fetchone()["id"]
         conn.commit()
     finally:
         conn.close()
 
     return jsonify({"success": True, "transaction_id": tx_id})
-
-
-# ─────────────────────────────────────────────────────────────────
-# POST /wallet-pay-transaction
-# ─────────────────────────────────────────────────────────────────
-
-@preview_bp.route("/wallet-pay-transaction", methods=["POST"])
-@login_required
-def wallet_pay_transaction():
-    """
-    Pay for a transaction using the internal wallet.
-    Deducts balance and saves as 'completed'.
-
-    Body: { description, amount, category, date? }
-    """
-    data        = request.get_json(silent=True) or {}
-    description = (data.get("description") or "Wallet Payment")[:200]
-    amount      = float(data.get("amount", 0))
-    category    = (data.get("category") or "").strip()
-    date        = data.get("date") or datetime.today().strftime("%Y-%m-%d")
-
-    # Auto-detect category if blank or "auto-detect"
-    if not category or category.lower() == "auto-detect":
-        from routes.transactions import get_smart_category
-        try:
-            category = get_smart_category(session["user_id"], description)
-        except Exception:
-            category = "Misc"
-
-    if amount <= 0:
-        return jsonify({"success": False, "message": "Invalid amount"}), 400
-
-    user_id = session["user_id"]
-    conn    = get_db()
-
-    try:
-        # Check balance
-        wallet_row = conn.execute(
-            "SELECT balance FROM wallets WHERE user_id=?", (user_id,)
-        ).fetchone()
-        balance = float(wallet_row["balance"]) if wallet_row else 0.0
-
-        if balance < amount:
-            return jsonify({
-                "success": False,
-                "message": f"Insufficient wallet balance (₹{balance:,.2f} available)"
-            }), 400
-
-        # Deduct
-        conn.execute(
-            "UPDATE wallets SET balance = balance - ? WHERE user_id=?",
-            (amount, user_id)
-        )
-
-        # Record wallet_transaction
-        conn.execute(
-            """INSERT INTO wallet_transactions
-               (sender_id, receiver_id, amount, note, status, created_at)
-               VALUES (?, NULL, ?, ?, 'completed', ?)""",
-            (user_id, amount, description, datetime.utcnow().isoformat())
-        )
-
-        # Save in transactions
-        cur = conn.execute(
-            """INSERT INTO transactions
-               (user_id, description, amount, type, category, date, status)
-               VALUES (?, ?, ?, 'expense', ?, ?, 'completed')""",
-            (user_id, f"{description} [Wallet]", amount, category, date)
-        )
-        tx_id = cur.lastrowid
-        conn.commit()
-
-        append_ledger(conn, user_id, tx_id)
-        conn.commit()
-
-    finally:
-        conn.close()
-
-    return jsonify({"success": True, "transaction_id": tx_id})
-
-
-# ─────────────────────────────────────────────────────────────────
-# GET /ledger/verify
-# ─────────────────────────────────────────────────────────────────
-
-@preview_bp.route("/ledger/verify")
-@login_required
-def ledger_verify():
-    """Verify the integrity of the caller's ledger chain."""
-    conn = get_db()
-    try:
-        result = verify_chain(conn, session["user_id"])
-    finally:
-        conn.close()
-    return jsonify(result)
-
-
-# ─────────────────────────────────────────────────────────────────
-# GET /ledger/history
-# ─────────────────────────────────────────────────────────────────
-
-@preview_bp.route("/ledger/history")
-@login_required
-def ledger_history():
-    """Return last 30 ledger entries for the caller."""
-    user_id = session["user_id"]
-    conn    = get_db()
-    try:
-        rows = conn.execute(
-            """SELECT l.id, l.transaction_id, l.hash, l.prev_hash, l.timestamp,
-                      t.description, t.amount, t.type
-               FROM ledger l
-               JOIN transactions t ON t.id = l.transaction_id
-               WHERE l.user_id = ?
-               ORDER BY l.id DESC LIMIT 30""",
-            (user_id,)
-        ).fetchall()
-    finally:
-        conn.close()
-    return jsonify({"ledger": [dict(r) for r in rows]})

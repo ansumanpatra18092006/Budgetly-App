@@ -8,6 +8,8 @@ Each entry stores:
 
 This gives an auditable, tamper-evident chain for every completed transaction.
 The chain is per-user (not global) so it scales with user count.
+
+Migrated to PostgreSQL / Supabase (psycopg, dict_row).
 """
 
 import hashlib
@@ -25,11 +27,11 @@ def append_ledger(conn, user_id: int, transaction_id: int) -> dict | None:
     ledger entry.  Returns the new ledger row dict, or None on failure.
 
     The caller is responsible for conn.commit() after this call so that
-    ledger + transaction writes land in the same SQLite transaction.
+    ledger + transaction writes land in the same transaction.
     """
     try:
         tx = conn.execute(
-            "SELECT id, amount, type, description, date FROM transactions WHERE id = ?",
+            "SELECT id, amount, type, description, date FROM transactions WHERE id = %s",
             (transaction_id,)
         ).fetchone()
         if tx is None:
@@ -54,7 +56,7 @@ def append_ledger(conn, user_id: int, transaction_id: int) -> dict | None:
         conn.execute(
             """INSERT INTO ledger
                (user_id, transaction_id, hash, prev_hash, timestamp)
-               VALUES (?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s)""",
             (user_id, transaction_id, new_hash, prev_hash, timestamp)
         )
 
@@ -77,7 +79,7 @@ def verify_chain(conn, user_id: int) -> dict:
     """
     rows = conn.execute(
         """SELECT id, transaction_id, hash, prev_hash, timestamp
-           FROM ledger WHERE user_id = ?
+           FROM ledger WHERE user_id = %s
            ORDER BY id ASC""",
         (user_id,)
     ).fetchall()
@@ -89,7 +91,7 @@ def verify_chain(conn, user_id: int) -> dict:
 
     for row in rows:
         tx = conn.execute(
-            "SELECT id, amount, type, description, date FROM transactions WHERE id = ?",
+            "SELECT id, amount, type, description, date FROM transactions WHERE id = %s",
             (row["transaction_id"],)
         ).fetchone()
         if tx is None:
@@ -126,7 +128,7 @@ def verify_chain(conn, user_id: int) -> dict:
 def _get_prev_hash(conn, user_id: int) -> str:
     """Return the most recent hash for this user, or the genesis sentinel."""
     row = conn.execute(
-        "SELECT hash FROM ledger WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        "SELECT hash FROM ledger WHERE user_id = %s ORDER BY id DESC LIMIT 1",
         (user_id,)
     ).fetchone()
     return row["hash"] if row else ("0" * 64)

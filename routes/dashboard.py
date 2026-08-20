@@ -28,8 +28,8 @@ def dashboard_summary():
                 COALESCE(SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END), 0) AS income,
                 COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
             FROM transactions
-            WHERE user_id = ?
-              AND date >= ?
+            WHERE user_id = %s
+              AND date >= %s
             """,
             (user_id, month_start),
         ).fetchone()
@@ -55,7 +55,7 @@ def get_budget():
 
     try:
         row = conn.execute(
-            "SELECT amount FROM budgets WHERE user_id = ?",
+            "SELECT amount FROM budgets WHERE user_id = %s",
             (user_id,),
         ).fetchone()
     finally:
@@ -91,11 +91,11 @@ def category_data():
                 COALESCE(category, 'Uncategorized') AS category,
                 SUM(amount) AS total
             FROM transactions
-            WHERE user_id = ?
+            WHERE user_id = %s
               AND type    = 'expense'
-              AND date   >= ?
+              AND date   >= %s
             GROUP BY category
-            HAVING total > 0
+            HAVING SUM(amount) > 0
             ORDER BY total DESC
             """,
             (user_id, month_start),
@@ -120,11 +120,11 @@ def monthly_trend():
         rows = conn.execute(
             """
             SELECT
-                strftime('%Y-%m', date) AS month,
+                to_char(date, 'YYYY-MM') AS month,
                 COALESCE(SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END), 0) AS income,
                 COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
             FROM transactions
-            WHERE user_id = ?
+            WHERE user_id = %s
             GROUP BY month
             ORDER BY month ASC
             """,
@@ -140,7 +140,14 @@ def monthly_trend():
     })
 
 
-# ================= BALANCE TREND (LAST 2 MONTHS) =================
+# ================= BALANCE / INCOME / EXPENSE TREND (LAST 2 MONTHS) =================
+def _pct_change(current, previous):
+    """Percent change from previous -> current, or None if not meaningful."""
+    if previous == 0:
+        return None
+    return round(((current - previous) / abs(previous)) * 100)
+
+
 @dashboard_bp.route("/balance-trend")
 @login_required
 def balance_trend():
@@ -151,11 +158,11 @@ def balance_trend():
         rows = conn.execute(
             """
             SELECT
-                strftime('%Y-%m', date) AS month,
-                COALESCE(SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS balance
+                to_char(date, 'YYYY-MM') AS month,
+                COALESCE(SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
             FROM transactions
-            WHERE user_id = ?
+            WHERE user_id = %s
             GROUP BY month
             ORDER BY month DESC
             LIMIT 2
@@ -165,17 +172,67 @@ def balance_trend():
     finally:
         conn.close()
 
-    if len(rows) < 2:
-        return jsonify({"change": 0})
+    current_month_str = datetime.today().strftime("%Y-%m")
+    by_month = {r["month"]: r for r in rows}
 
-    current  = rows[0]["balance"] or 0
-    previous = rows[1]["balance"] or 0
+    current_row = by_month.get(current_month_str)
+    current_income  = float(current_row["income"])  if current_row else 0.0
+    current_expense = float(current_row["expense"]) if current_row else 0.0
+    current_balance = current_income - current_expense
+    has_current_data = current_income > 0 or current_expense > 0
 
-    if previous == 0:
-        return jsonify({"change": 0})
+    # Previous = the most recent row that ISN'T the current month
+    previous_row = next((r for r in rows if r["month"] != current_month_str), None)
+    previous_income  = float(previous_row["income"])  if previous_row else 0.0
+    previous_expense = float(previous_row["expense"]) if previous_row else 0.0
+    previous_balance = previous_income - previous_expense
+    has_previous_data = previous_row is not None and (previous_income > 0 or previous_expense > 0)
 
-    percent = ((current - previous) / abs(previous)) * 100
-    return jsonify({"change": round(percent)})
+    # ---- Balance trend ----
+    if has_current_data and has_previous_data:
+        balance_change = _pct_change(current_balance, previous_balance)
+        balance_status = "ok" if balance_change is not None else "insufficient_data"
+    else:
+        balance_change = None
+        balance_status = "insufficient_data"
+
+    # ---- Income trend ----
+    if current_income > 0 and previous_income > 0:
+        income_change = _pct_change(current_income, previous_income)
+        income_status = "ok" if income_change is not None else "insufficient_data"
+    else:
+        income_change = None
+        income_status = "insufficient_data"
+
+    # ---- Expense trend ----
+    if current_expense > 0 and previous_expense > 0:
+        expense_change = _pct_change(current_expense, previous_expense)
+        expense_status = "ok" if expense_change is not None else "insufficient_data"
+    else:
+        expense_change = None
+        expense_status = "insufficient_data"
+
+    return jsonify({
+        "balance": {
+            "status": balance_status,
+            "change": balance_change,
+            "current_balance": current_balance,
+            "previous_balance": previous_balance,
+            "has_current_data": has_current_data,
+        },
+        "income": {
+            "status": income_status,
+            "change": income_change,
+            "current_income": current_income,
+            "previous_income": previous_income,
+        },
+        "expense": {
+            "status": expense_status,
+            "change": expense_change,
+            "current_expense": current_expense,
+            "previous_expense": previous_expense,
+        },
+    })
 
 
 # ================= TOP CATEGORIES (CURRENT MONTH) =================
@@ -193,9 +250,9 @@ def top_categories():
                 COALESCE(category, 'Uncategorized') AS category,
                 SUM(amount) AS total
             FROM transactions
-            WHERE user_id = ?
+            WHERE user_id = %s
               AND type    = 'expense'
-              AND date   >= ?
+              AND date   >= %s
             GROUP BY category
             ORDER BY total DESC
             LIMIT 5

@@ -93,18 +93,6 @@
             <!-- ============ DASHBOARD PAGE ============ -->
             <section id="dashboard" class="page active">
 
-                <!-- Recurring modal (fixed overlay) -->
-                <div id="recurringModal" class="recurring-modal hidden">
-                    <div class="recurring-card">
-                        <h3>Recurring Expense Detected</h3>
-                        <p id="recurringText"></p>
-                        <div class="recurring-actions">
-                            <button id="recurringYes" class="btn btn-primary">Yes, Add</button>
-                            <button id="recurringNo" class="btn btn-secondary">No</button>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- PAGE HEADER -->
                 <header class="page-header">
                     <div class="header-text">
@@ -148,9 +136,9 @@
                         </div>
                         <div class="stat-value" id="balance">₹0.00</div>
                         <div class="stat-footer">
-                            <span class="stat-trend positive">
-                                <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
-                                +0% vs last month
+                            <span class="stat-trend neutral">
+                                <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+                                Checking...
                             </span>
                         </div>
                     </article>
@@ -161,9 +149,9 @@
                         </div>
                         <div class="stat-value" id="income">₹0.00</div>
                         <div class="stat-footer">
-                            <span class="stat-trend positive">
-                                <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
-                                This month
+                            <span class="stat-trend neutral">
+                                <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+                                Checking...
                             </span>
                         </div>
                     </article>
@@ -174,9 +162,9 @@
                         </div>
                         <div class="stat-value" id="expense">₹0.00</div>
                         <div class="stat-footer">
-                            <span class="stat-trend negative">
-                                <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
-                                This month
+                            <span class="stat-trend neutral">
+                                <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+                                Checking...
                             </span>
                         </div>
                     </article>
@@ -253,58 +241,6 @@
 
                 </div>
 
-                <div class="wallet-widget" style="margin-bottom: var(--spacing-xl);">
-
-                    <!-- Header row -->
-                    <div class="wallet-widget-header">
-                        <span class="wallet-widget-label">
-                            <i class="fa-solid fa-wallet" style="margin-right:6px;"></i>
-                            Budgetly Wallet
-                        </span>
-                        <!-- Ledger integrity badge – populated by JS -->
-                        <span id="ledgerBadge" class="pay-risk-badge"
-                            style="background:rgba(255,255,255,0.10);color:rgba(255,255,255,0.50);font-size:0.65rem;cursor:pointer;"
-                            onclick="checkLedgerIntegrity()" title="Click to verify transaction chain">
-                            <i class="fa-solid fa-link"></i> Ledger
-                        </span>
-                    </div>
-
-                    <!-- Balance -->
-                    <div class="wallet-widget-balance wallet-balance-display">₹0.00</div>
-
-                    <!-- Action buttons -->
-                    <div class="wallet-widget-actions">
-                        <button class="wallet-action-btn" onclick="openTopupModal()">
-                            <i class="fa-solid fa-circle-plus"></i> Add Money
-                        </button>
-                        <button class="wallet-action-btn" onclick="openSendModal()">
-                            <i class="fa-solid fa-paper-plane"></i> Send
-                        </button>
-                        <button class="wallet-action-btn" onclick="openWalletHistoryPanel()">
-                            <i class="fa-solid fa-clock-rotate-left"></i> History
-                        </button>
-                    </div>
-
-                </div>
-
-                <!-- Wallet history panel (slide-in, reuses existing modal pattern) -->
-                <div id="walletHistoryModal" class="pay-overlay hidden" role="dialog" aria-modal="true">
-                    <div class="pay-sheet" style="max-width:560px;">
-                        <div class="pay-sheet-header">
-                            <div class="pay-sheet-icon" style="background:linear-gradient(135deg,#1d4ed8,#2563eb);">
-                                <i class="fa-solid fa-clock-rotate-left"></i>
-                            </div>
-                            <div>
-                                <h2 class="pay-sheet-title">Wallet History</h2>
-                                <p class="pay-sheet-sub">Your recent wallet transactions</p>
-                            </div>
-                            <button class="pay-close-btn" onclick="closeWalletHistoryPanel()">
-                                <i class="fa-solid fa-xmark"></i>
-                            </button>
-                        </div>
-                        <ul id="walletHistoryList" style="padding:0;margin:0;list-style:none;"></ul>
-                    </div>
-                </div>
                 <!-- ROW 4: CHARTS -->
                 <div class="charts-grid">
                     <div class="chart-card">
@@ -1068,23 +1004,6 @@
     <!-- Event wiring: all scripts above are parsed, DOM is ready -->
     <script>
 
-        async function loadRecurringSuggestions() {
-            const res = await fetch('/recurring-suggestions', {
-                credentials: 'include'
-            });
-
-            const data = await res.json();
-
-            if (!data.length) return;
-
-            data.forEach(item => {
-                showNotification(
-                    `You usually pay ₹${item.amount} for ${item.description}. Add it?`,
-                    'info',
-                    () => autoAddRecurring(item)
-                );
-            });
-        }
         let previewData = [];
 
         function showPreview(transactions) {
@@ -1142,22 +1061,6 @@
             showPreview(previewData);
         }
 
-        async function confirmImport() {
-            const res = await fetch("/save-preview-transactions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ transactions: previewData })
-            });
-
-            const data = await res.json();
-
-            if (data.success) {
-                showNotification(`Imported ${data.count} transactions`, "success");
-                closePreview();
-                loadHistory();
-            }
-        }
 
         function closePreview() {
             document.getElementById("previewModal").classList.add("hidden");
@@ -1283,36 +1186,17 @@
             });
         }());
 
-        window.addEventListener('load', () => {
-            loadRecurringSuggestions();
-        });
-
-        async function autoAddRecurring(item) {
-            await fetch('/add-transaction', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    description: item.description,
-                    amount: item.amount,
-                    type: 'expense'
-                })
-            });
-
-            showNotification('Recurring expense added!', 'success');
-            location.reload();
-        }
     </script>
 
     <!-- ================================================================
      PASTE THIS BLOCK INSIDE <body>, just before </body>
      in index.html.
-     
-     Three modals:
-       1. #txPreviewModal     — transaction preview + payment choice
-       2. #upiConfirmModal    — UPI "did you pay?" confirmation
-       3. #walletTopupModal   — add money to wallet
-       4. #walletSendModal    — send to another user
+
+     Two modals:
+       1. #txPreviewModal     — transaction preview + payment impact
+       2. #upiConfirmModal    — "did you pay?" confirmation after
+                                 the user completes payment in their
+                                 own external UPI app
 ================================================================ -->
 
     <!-- ── 1. TRANSACTION PREVIEW / DECISION MODAL ─────────────────── -->
@@ -1359,21 +1243,8 @@
             <!-- Goal note -->
             <p id="previewGoalImpact" class="pay-goal-note" style="display:none"></p>
 
-            <!-- Wallet balance chip -->
-            <div class="pay-wallet-chip">
-                <i class="fa-solid fa-wallet"></i>
-                Wallet balance:&nbsp;
-                <strong class="wallet-balance-display">₹0.00</strong>
-            </div>
-
             <!-- Action buttons -->
             <div class="pay-action-row">
-                <button id="previewWalletBtn" class="pay-btn pay-btn-wallet" onclick="proceedWithWallet()">
-                    <i class="fa-solid fa-wallet"></i>
-                    <span>Pay with Wallet</span>
-                    <small>Instant &amp; internal</small>
-                </button>
-
                 <button class="pay-btn pay-btn-upi" onclick="proceedWithUPI()">
                     <i class="fa-solid fa-mobile-screen"></i>
                     <span>Pay with UPI</span>
@@ -1417,7 +1288,7 @@
             </div>
 
             <div class="pay-action-row" style="flex-direction:column; gap:10px;">
-                <button class="pay-btn pay-btn-wallet" onclick="confirmUPISuccess()">
+                <button class="pay-btn pay-btn-upi" onclick="confirmUPISuccess()">
                     <i class="fa-solid fa-circle-check"></i>
                     <span>Yes, payment done!</span>
                     <small>Record this transaction</small>
@@ -1430,96 +1301,6 @@
         </div>
     </div>
 
-    <!-- ── 3. WALLET TOP-UP MODAL ──────────────────────────────────── -->
-    <div id="walletTopupModal" class="pay-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="topupTitle">
-        <div class="pay-sheet pay-sheet-sm">
-
-            <div class="pay-sheet-header">
-                <div class="pay-sheet-icon" style="background: linear-gradient(135deg,#059669,#047857);">
-                    <i class="fa-solid fa-circle-plus"></i>
-                </div>
-                <div>
-                    <h2 id="topupTitle" class="pay-sheet-title">Add Money</h2>
-                    <p class="pay-sheet-sub">Top up your Budgetly Wallet</p>
-                </div>
-                <button class="pay-close-btn" onclick="closeTopupModal()" aria-label="Close">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-
-            <div class="topup-balance-row">
-                Current balance: <strong class="wallet-balance-display">₹0.00</strong>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label" for="topupAmount">Amount (₹)</label>
-                <input id="topupAmount" type="number" class="form-input" placeholder="500" min="1" max="100000"
-                    oninput="this.value = this.value.replace(/[^0-9.]/g,'')">
-            </div>
-
-            <!-- Quick amounts -->
-            <div class="topup-quick-row">
-                <span class="topup-quick-label">Quick add:</span>
-                <button class="topup-quick-chip"
-                    onclick="document.getElementById('topupAmount').value=500">₹500</button>
-                <button class="topup-quick-chip"
-                    onclick="document.getElementById('topupAmount').value=1000">₹1K</button>
-                <button class="topup-quick-chip"
-                    onclick="document.getElementById('topupAmount').value=2000">₹2K</button>
-                <button class="topup-quick-chip"
-                    onclick="document.getElementById('topupAmount').value=5000">₹5K</button>
-            </div>
-
-            <button id="topupSubmitBtn" class="btn-primary" style="width:100%;margin-top:16px;" onclick="submitTopup()">
-                <i class="fa-solid fa-plus"></i> Add Money
-            </button>
-        </div>
-    </div>
-
-    <!-- ── 4. WALLET SEND MODAL ────────────────────────────────────── -->
-    <div id="walletSendModal" class="pay-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="sendTitle">
-        <div class="pay-sheet pay-sheet-sm">
-
-            <div class="pay-sheet-header">
-                <div class="pay-sheet-icon" style="background: linear-gradient(135deg,#7c3aed,#5b21b6);">
-                    <i class="fa-solid fa-paper-plane"></i>
-                </div>
-                <div>
-                    <h2 id="sendTitle" class="pay-sheet-title">Send Money</h2>
-                    <p class="pay-sheet-sub">Transfer to another user's wallet</p>
-                </div>
-                <button class="pay-close-btn" onclick="closeSendModal()" aria-label="Close">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-
-            <div class="topup-balance-row">
-                Available: <strong class="wallet-balance-display">₹0.00</strong>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label" for="sendReceiverEmail">Receiver Email</label>
-                <input id="sendReceiverEmail" type="email" class="form-input" placeholder="friend@example.com"
-                    autocomplete="off">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label" for="sendAmount">Amount (₹)</label>
-                <input id="sendAmount" type="number" class="form-input" placeholder="0" min="1"
-                    oninput="this.value = this.value.replace(/[^0-9.]/g,'')">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label" for="sendNote">Note (optional)</label>
-                <input id="sendNote" type="text" class="form-input" placeholder="Lunch split, rent, etc."
-                    maxlength="120">
-            </div>
-
-            <button id="sendSubmitBtn" class="btn-primary" style="width:100%;margin-top:4px;" onclick="submitSend()">
-                <i class="fa-solid fa-paper-plane"></i> Send
-            </button>
-        </div>
-    </div>
 
     <!-- ✅ ADD QR MODAL HERE -->
     <div id="upiQRModal" class="pay-overlay hidden">
@@ -1533,7 +1314,6 @@
             <button class="pay-btn" onclick="closeUPIQRModal()">Close</button>
         </div>
     </div>
-    <script src="/static/js/wallet.js"></script>
 </body>
 
 </html>
