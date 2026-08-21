@@ -7,19 +7,20 @@ function showPage(pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
-    const page   = document.getElementById(pageId);
+    const page = document.getElementById(pageId);
     const navBtn = document.querySelector(`[data-target="${pageId}"]`);
 
-    if (page)   page.classList.add('active');
+    if (page) page.classList.add('active');
     if (navBtn) navBtn.classList.add('active');
 
     switch (pageId) {
-        case 'dashboard': loadDashboard();    break;
-        case 'history':   loadHistory();      break;
-        case 'goals':     loadGoals();        break;
+        case 'dashboard': loadDashboard(); break;
+        case 'history': loadHistory(); break;
+        case 'goals': loadGoals(); break;
         case 'roadmap': loadRoadmap(); break;
-        case 'insights':  loadInsights();     break;
-        case 'profile':   loadUserProfile();  break;
+        case 'insights': loadInsights(); break;
+        case 'credit-assessment': if (typeof initCreditAssessmentPage === 'function') initCreditAssessmentPage(); break;
+        case 'profile': loadUserProfile(); break;
     }
 }
 
@@ -31,13 +32,13 @@ function showPage(pageId) {
 ================================================================ */
 function setupKeyboardShortcuts() {
     const pageMap = {
-    '1': 'dashboard',
-    '2': 'add',
-    '3': 'history',
-    '4': 'goals',
-    '5': 'insights',
-    '6': 'roadmap',   // ← ADD THIS
-};
+        '1': 'dashboard',
+        '2': 'add',
+        '3': 'history',
+        '4': 'goals',
+        '5': 'insights',
+        '6': 'roadmap',   // ← ADD THIS
+    };
     document.addEventListener('keydown', e => {
         if (!e.altKey) return;
         if (pageMap[e.key]) { e.preventDefault(); showPage(pageMap[e.key]); }
@@ -49,7 +50,7 @@ function setupKeyboardShortcuts() {
    THEME
 ================================================================ */
 function toggleTheme() {
-    const html     = document.documentElement;
+    const html = document.documentElement;
     const newTheme = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme-preference', newTheme);

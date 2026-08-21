@@ -67,6 +67,10 @@
                     <div class="nav-icon"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i></div>
                     <span class="nav-label">Insights</span>
                 </button>
+                <button class="nav-item" data-target="credit-assessment" aria-label="Credit Assessment">
+                    <div class="nav-icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></div>
+                    <span class="nav-label">Credit Assessment</span>
+                </button>
                 <button class="nav-item" data-target="profile" aria-label="Profile">
                     <div class="nav-icon"><i class="fa-solid fa-user" aria-hidden="true"></i></div>
                     <span class="nav-label">Profile</span>
@@ -511,37 +515,421 @@
             <section id="insights" class="page">
                 <header class="page-header">
                     <div class="header-text">
-                        <h1 class="page-title">Detailed Insights</h1>
-                        <p class="page-subtitle">Deep analysis of your spending patterns</p>
+                        <h1 class="page-title">Financial Intelligence</h1>
+                        <p class="page-subtitle">One unified view of your financial health, forecast, and
+                            recommendations</p>
                     </div>
                 </header>
 
-                <div class="insights-tabs" role="tablist">
-                    <button class="insights-tab active" data-insight="analysis" role="tab">Spending Analysis</button>
-                    <button class="insights-tab" data-insight="trends" role="tab">Trends</button>
-                    <button class="insights-tab" data-insight="anomalies" role="tab">Anomalies</button>
-                    <button class="insights-tab" data-insight="recommendations" role="tab">Recommendations</button>
-                    <button class="insights-tab" data-insight="subscriptions" role="tab">Subscriptions</button>
+                <div id="dynamicInsights"></div>
+            </section>
+
+            <!-- ============ CREDIT ASSESSMENT PAGE ============ -->
+            <!-- ============ CREDIT ASSESSMENT PAGE ============ -->
+            <section id="credit-assessment" class="page">
+                <header class="page-header">
+                    <div class="header-text">
+                        <h1 class="page-title">Credit Assessment</h1>
+                        <p class="page-subtitle">
+                            <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                            Credit Risk Assessment for a loan applicant profile
+                        </p>
+                    </div>
+                </header>
+
+                <p class="ca-disclaimer">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    Assessment based on the applicant profile used by the trained credit-risk model.
+                    This is a standalone credit risk check — it is not derived from, and does not
+                    affect, your Budgetly transaction history or financial health score.
+                </p>
+
+                <!-- INTERNAL SECTION NAVIGATION -->
+                <div class="ca-section-nav">
+                    <button class="ca-nav-item active" data-section="overview"><i class="fa-solid fa-list"></i>
+                        Overview</button>
+                    <button class="ca-nav-item" data-section="behavior"><i class="fa-solid fa-wallet"></i> Financial
+                        Behavior</button>
+                    <button class="ca-nav-item" data-section="affordability"><i class="fa-solid fa-calculator"></i>
+                        Affordability</button>
+                    <button class="ca-nav-item" data-section="explainability"><i
+                            class="fa-solid fa-magnifying-glass-chart"></i> Explainability</button>
+                    <button class="ca-nav-item" data-section="scenario"><i class="fa-solid fa-code-branch"></i> Scenario
+                        Analysis</button>
+                    <button class="ca-nav-item" data-section="responsible-ai"><i class="fa-solid fa-scale-balanced"></i>
+                        Responsible AI</button>
                 </div>
 
-                <div class="insights-grid">
-                    <div id="dynamicInsights" class="insight-card full-width"></div>
+                <!-- ==============================================
+                     1. OVERVIEW SECTION (Default Active)
+                =============================================== -->
+                <div class="ca-section ca-section-active" data-section="overview">
+                    <div class="ca-layout">
+                        <!-- FORM CARD -->
+                        <div class="health-score-card ca-form-card">
+                            <form id="creditAssessmentForm" novalidate>
 
-                    <div class="insight-card">
-                        <h3 class="card-title">Top Spending Categories</h3>
-                        <p class="card-subtitle" style="margin-bottom:var(--spacing-lg);">Last 30 days</p>
-                        <div id="topCategoriesContainer" style="display:flex;flex-direction:column;gap:10px;"></div>
+                                <!-- Loan Details -->
+                                <div class="form-section ca-form-section">
+                                    <h3 class="form-title">Loan Details</h3>
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="ca_duration_months" class="form-label">Loan Duration
+                                                (months)</label>
+                                            <input type="number" id="ca_duration_months" class="form-input" min="1"
+                                                max="120" step="1" placeholder="e.g., 24" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_credit_amount" class="form-label">Credit Amount (₹)</label>
+                                            <input type="number" id="ca_credit_amount" class="form-input" min="1"
+                                                max="1000000" step="1" placeholder="e.g., 250000" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_purpose" class="form-label">Purpose of Loan</label>
+                                            <select id="ca_purpose" class="form-select" required>
+                                                <option value="" disabled selected>Select purpose…</option>
+                                                <option value="A40">New car</option>
+                                                <option value="A41">Used car</option>
+                                                <option value="A42">Furniture / equipment</option>
+                                                <option value="A43">Radio / television</option>
+                                                <option value="A44">Domestic appliances</option>
+                                                <option value="A45">Repairs</option>
+                                                <option value="A46">Education</option>
+                                                <option value="A47">Vacation</option>
+                                                <option value="A48">Retraining</option>
+                                                <option value="A49">Business</option>
+                                                <option value="A410">Other</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_installment_rate" class="form-label">Installment Rate (1–4
+                                                scale)</label>
+                                            <input type="number" id="ca_installment_rate" class="form-input" min="1"
+                                                max="4" step="1" placeholder="1 to 4" required>
+                                            <span class="ca-field-hint">Installment as a share of disposable income, on
+                                                the model's 1 (lowest) – 4 (highest) scale.</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Credit History -->
+                                <div class="form-section ca-form-section">
+                                    <h3 class="form-title">Credit History</h3>
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="ca_credit_history" class="form-label">Credit History</label>
+                                            <select id="ca_credit_history" class="form-select" required>
+                                                <option value="" disabled selected>Select credit history…</option>
+                                                <option value="A30">No credits taken / all credits paid duly</option>
+                                                <option value="A31">All credits at this bank paid duly</option>
+                                                <option value="A32">Existing credits paid duly till now</option>
+                                                <option value="A33">Delay in paying off in the past</option>
+                                                <option value="A34">Critical account / other credits existing elsewhere
+                                                </option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_existing_credits" class="form-label">Existing Credits at This
+                                                Bank</label>
+                                            <input type="number" id="ca_existing_credits" class="form-input" min="1"
+                                                max="10" step="1" placeholder="e.g., 1" required>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Financial Situation -->
+                                <div class="form-section ca-form-section">
+                                    <h3 class="form-title">Financial Situation</h3>
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="ca_checking_account" class="form-label">Checking Account
+                                                Status</label>
+                                            <select id="ca_checking_account" class="form-select" required>
+                                                <option value="" disabled selected>Select status…</option>
+                                                <option value="A11">Negative balance</option>
+                                                <option value="A12">Balance under 200 (bank units)</option>
+                                                <option value="A13">Balance 200 or above</option>
+                                                <option value="A14">No checking account</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_savings_account" class="form-label">Savings Account /
+                                                Bonds</label>
+                                            <select id="ca_savings_account" class="form-select" required>
+                                                <option value="" disabled selected>Select balance…</option>
+                                                <option value="A61">Under 100 (bank units)</option>
+                                                <option value="A62">100 to under 500</option>
+                                                <option value="A63">500 to under 1,000</option>
+                                                <option value="A64">1,000 or above</option>
+                                                <option value="A65">Unknown / no savings account</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_other_debtors" class="form-label">Other Debtors /
+                                                Guarantors</label>
+                                            <select id="ca_other_debtors" class="form-select" required>
+                                                <option value="" disabled selected>Select…</option>
+                                                <option value="A101">None</option>
+                                                <option value="A102">Co-applicant</option>
+                                                <option value="A103">Guarantor</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_property" class="form-label">Property</label>
+                                            <select id="ca_property" class="form-select" required>
+                                                <option value="" disabled selected>Select property…</option>
+                                                <option value="A121">Real estate</option>
+                                                <option value="A122">Building society savings / life insurance</option>
+                                                <option value="A123">Car or other property</option>
+                                                <option value="A124">Unknown / no property</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_other_installment_plans" class="form-label">Other Installment
+                                                Plans</label>
+                                            <select id="ca_other_installment_plans" class="form-select" required>
+                                                <option value="" disabled selected>Select…</option>
+                                                <option value="A141">Bank</option>
+                                                <option value="A142">Stores</option>
+                                                <option value="A143">None</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_housing" class="form-label">Housing</label>
+                                            <select id="ca_housing" class="form-select" required>
+                                                <option value="" disabled selected>Select housing…</option>
+                                                <option value="A151">Rent</option>
+                                                <option value="A152">Own</option>
+                                                <option value="A153">For free</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Employment / Personal Profile -->
+                                <div class="form-section ca-form-section">
+                                    <h3 class="form-title">Employment &amp; Personal Profile</h3>
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="ca_employment_since" class="form-label">Employed Since</label>
+                                            <select id="ca_employment_since" class="form-select" required>
+                                                <option value="" disabled selected>Select duration…</option>
+                                                <option value="A71">Unemployed</option>
+                                                <option value="A72">Less than 1 year</option>
+                                                <option value="A73">1 to under 4 years</option>
+                                                <option value="A74">4 to under 7 years</option>
+                                                <option value="A75">7 years or more</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_personal_status_sex" class="form-label">Personal
+                                                Status</label>
+                                            <select id="ca_personal_status_sex" class="form-select" required>
+                                                <option value="" disabled selected>Select status…</option>
+                                                <option value="A91">Male — divorced / separated</option>
+                                                <option value="A92">Female — divorced / separated / married</option>
+                                                <option value="A93">Male — single</option>
+                                                <option value="A94">Male — married / widowed</option>
+                                                <option value="A95">Female — single</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_residence_since" class="form-label">Years at Present
+                                                Residence</label>
+                                            <input type="number" id="ca_residence_since" class="form-input" min="1"
+                                                max="4" step="1" placeholder="1 to 4" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_age" class="form-label">Age</label>
+                                            <input type="number" id="ca_age" class="form-input" min="18" max="100"
+                                                step="1" placeholder="e.g., 30" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_dependents" class="form-label">Number of Dependents</label>
+                                            <input type="number" id="ca_dependents" class="form-input" min="1" max="10"
+                                                step="1" placeholder="e.g., 1" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_job" class="form-label">Job Type</label>
+                                            <select id="ca_job" class="form-select" required>
+                                                <option value="" disabled selected>Select job type…</option>
+                                                <option value="A171">Unemployed / unskilled — non-resident</option>
+                                                <option value="A172">Unskilled — resident</option>
+                                                <option value="A173">Skilled employee / official</option>
+                                                <option value="A174">Management / self-employed / highly qualified
+                                                </option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_telephone" class="form-label">Telephone</label>
+                                            <select id="ca_telephone" class="form-select" required>
+                                                <option value="" disabled selected>Select…</option>
+                                                <option value="A191">None</option>
+                                                <option value="A192">Registered in applicant's name</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ca_foreign_worker" class="form-label">Foreign Worker</label>
+                                            <select id="ca_foreign_worker" class="form-select" required>
+                                                <option value="" disabled selected>Select…</option>
+                                                <option value="A201">Yes</option>
+                                                <option value="A202">No</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="creditFormErrors" class="ca-error-list hidden" role="alert"></div>
+
+                                <div class="form-actions">
+                                    <button type="submit" class="btn-primary" id="submitCreditBtn">
+                                        <i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Assess Credit Risk
+                                    </button>
+                                    <button type="button" class="btn-secondary" id="resetCreditBtn">
+                                        <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- RESULT CARD -->
+                        <div class="health-score-card ca-result-card">
+                            <div class="card-header">
+                                <h3 class="card-title">Credit Risk Assessment</h3>
+                            </div>
+                            <div id="creditResultArea">
+                                <div class="empty-state" id="creditResultEmpty">
+                                    <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                                    <p>Fill in the applicant details and submit to see the assessment.</p>
+                                </div>
+                            </div>
+
+                            <!-- Application Anomaly Check -->
+                            <div id="caAnomalySection"></div>
+                        </div>
+
                     </div>
+                </div>
 
-                    <div class="insight-card">
-                        <h3 class="card-title">Spending Insights</h3>
-                        <p class="card-subtitle" style="margin-bottom:var(--spacing-lg);">Compared to last month</p>
-                        <div
-                            style="padding:var(--spacing-md);background:var(--success-light);border-radius:var(--radius-md);color:var(--success);">
-                            <div id="insightsContainer"></div>
+                <!-- ==============================================
+                     1.5 FINANCIAL BEHAVIOR SECTION (Phase 7)
+                =============================================== -->
+                <div class="ca-section ca-section-hidden" data-section="behavior">
+                    <div class="health-score-card">
+                        <div class="card-header">
+                            <div>
+                                <h3 class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-wallet" style="color: var(--primary);"></i>
+                                    Financial Behavior Assessment
+                                </h3>
+                                <p class="card-subtitle">Deterministic indicators derived directly from your Budgetly
+                                    transaction history.</p>
+                            </div>
+                        </div>
+
+                        <p class="ca-disclaimer" style="margin-bottom: var(--spacing-lg);">
+                            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                            Financial behavior is shown separately from the trained credit-risk model
+                            and does not alter its probability in this phase.
+                        </p>
+
+                        <div id="caBehaviorBody">
+                            <div class="ca-loading">
+                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                                <p>Loading behavior profile...</p>
+                            </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- ==============================================
+                     1.75 AFFORDABILITY SECTION (Phase 8)
+                =============================================== -->
+                <div class="ca-section ca-section-hidden" data-section="affordability">
+                    <div class="health-score-card">
+                        <div class="card-header">
+                            <div>
+                                <h3 class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-calculator" style="color: var(--primary);"></i>
+                                    Affordability Assessment
+                                </h3>
+                                <p class="card-subtitle">Cash-flow assessment based on recorded Budgetly financial
+                                    behavior.</p>
+                            </div>
+                        </div>
+
+                        <p class="ca-disclaimer" style="margin-bottom: var(--spacing-lg);">
+                            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                            This does not replace the trained credit-risk model. An affordable loan is not necessarily a
+                            low-risk loan, and an unaffordable loan is not automatically a credit-risk rejection.
+                        </p>
+
+                        <div id="caAffordabilityBody">
+                            <div class="empty-state">
+                                <i class="fa-solid fa-calculator" aria-hidden="true"></i>
+                                <p>Complete the applicant form to evaluate affordability.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==============================================
+                     2. EXPLAINABILITY SECTION 
+                =============================================== -->
+                <div class="ca-section ca-section-hidden" data-section="explainability">
+                    <div class="health-score-card">
+                        <div class="card-header">
+                            <div>
+                                <h3 class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-magnifying-glass-chart" style="color: var(--primary);"></i>
+                                    Why This Result?
+                                </h3>
+                                <p class="card-subtitle">Factor interpretation and model explainability using SHAP
+                                    values.</p>
+                            </div>
+                        </div>
+                        <div id="caExplainBody">
+                            <div class="empty-state">
+                                <i class="fa-solid fa-magnifying-glass-chart" aria-hidden="true"></i>
+                                <p>Complete an assessment to see which factors influenced the model's result.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==============================================
+                     3. SCENARIO ANALYSIS SECTION 
+                =============================================== -->
+                <div class="ca-section ca-section-hidden" data-section="scenario">
+                    <div class="health-score-card">
+                        <div class="card-header">
+                            <div>
+                                <h3 class="card-title" style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-code-branch" style="color: var(--primary);"></i>
+                                    Scenario Analysis
+                                </h3>
+                                <p class="card-subtitle">See how a change in the applicant profile could affect
+                                    model-estimated credit risk.</p>
+                            </div>
+                        </div>
+                        <div id="caScenarioContent">
+                            <div class="empty-state">
+                                <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                                <p>Run a credit assessment first to explore scenarios.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==============================================
+                     4. RESPONSIBLE AI SECTION 
+                =============================================== -->
+                <div class="ca-section ca-section-hidden" data-section="responsible-ai">
+                    <div class="health-score-card" id="caResponsibleAiSection">
+                        <!-- Populated independently on initialization -->
+                    </div>
+                </div>
+
             </section>
 
             <!-- ============ PROFILE PAGE ============ -->
@@ -915,6 +1303,7 @@
     <script src="/static/js/chatbot.js"></script>
     <script src="/static/js/ai_insights.js"></script>
     <script src="/static/js/roadmap.js"></script>
+    <script src="/static/js/credit_risk.js"></script>
     <!-- ================================================
          AI CHAT WIDGET
     ================================================ -->
@@ -1179,11 +1568,6 @@
             document.getElementById('closeEditProfileBtn').addEventListener('click', closeEditProfileModal);
             document.getElementById('cancelEditProfileBtn').addEventListener('click', closeEditProfileModal);
             document.getElementById('saveProfileBtn').addEventListener('click', saveProfileChanges);
-
-            // Insights tabs
-            document.querySelectorAll('.insights-tab[data-insight]').forEach(tab => {
-                tab.addEventListener('click', () => renderInsights(tab.dataset.insight));
-            });
         }());
 
     </script>

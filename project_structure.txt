@@ -1,49 +1,54 @@
 pfm_proj_work4
-├── .env
-├── .gitignore
-├── .python-version
-├── add_transaction.jpeg
-├── app.py
-├── budget.db
-├── Budgetly_ppt-1.pptx
-├── dashboard.jpeg
-├── data.csv
-├── generate_structure.py
-├── gpay_statement_20250901_20260228.pdf
-├── login.jpeg
 ├── ml
+│   ├── credit_risk
+│   │   ├── models
+│   │   │   ├── anomaly_model.pkl
+│   │   │   ├── calibrated_preprocessor.pkl
+│   │   │   └── calibrated_xgboost.pkl
+│   │   ├── __init__.py
+│   │   ├── anomaly.py
+│   │   ├── anomaly_inference.py
+│   │   ├── anomaly_train.py
+│   │   ├── assessment.py
+│   │   ├── config.py
+│   │   ├── decision_policy.py
+│   │   ├── explain.py
+│   │   ├── explanation_mapper.py
+│   │   ├── fairness_report.csv
+│   │   ├── fairness_service.py
+│   │   ├── final_assessment.py
+│   │   ├── model_cache.py
+│   │   ├── predict.py
+│   │   ├── risk_engine.py
+│   │   ├── scenario.py
+│   │   ├── test_credit_engine.py
+│   │   └── validation.py
 │   ├── anomaly_model.py
 │   ├── category.pkl
 │   ├── category_model.py
 │   ├── forecast_model.py
 │   ├── recommender.py
 │   └── risk_model.py
-├── PhonePe_Statement_Apr2025_Apr2026.pdf
-├── PhonePe_Statement_Mar2026_Apr2026.pdf
-├── project_structure.txt
-├── requirements.txt
 ├── routes
 │   ├── .gitignore
 │   ├── __init__.py
 │   ├── ai_insights.py
 │   ├── auth.py
 │   ├── chatbot.py
+│   ├── credit_risk.py
 │   ├── dashboard.py
 │   ├── goals.py
 │   ├── insights.py
 │   ├── oauth.py
 │   ├── preview.py
-│   ├── transactions.py
-│   └── wallet.py
-├── runtime.txt
-├── schema.sql
+│   └── transactions.py
 ├── services
 │   ├── __init__.py
 │   ├── analytics_services.py
 │   ├── budget_service.py
+│   ├── credit_risk_service.py
 │   ├── decision_engine.py
 │   ├── gemini_service.py
-│   ├── ledger_service.py
 │   ├── recurring_service.py
 │   └── transactions_services.py
 ├── static
@@ -59,6 +64,7 @@ pfm_proj_work4
 │       ├── ai_insights.js
 │       ├── app.js
 │       ├── chatbot.js
+│       ├── credit_risk.js
 │       ├── dashboard.js
 │       ├── goals.js
 │       ├── history.js
@@ -67,15 +73,32 @@ pfm_proj_work4
 │       ├── navigation.js
 │       ├── profile.js
 │       ├── roadmap.js
-│       ├── transactions.js
-│       └── wallet.js
+│       └── transactions.js
 ├── templates
 │   ├── index.html
 │   ├── login.html
 │   └── reset_password.html
+├── utils
+│   ├── db.py
+│   ├── db_migrate.py
+│   └── decorators.py
+├── .env
+├── .gitignore
+├── .python-version
+├── add_transaction.jpeg
+├── app.py
+├── budget.db
+├── Budgetly_ppt-1.pptx
+├── dashboard.jpeg
+├── data.csv
+├── generate_structure.py
+├── gpay_statement_20250901_20260228.pdf
+├── login.jpeg
+├── PhonePe_Statement_Apr2025_Apr2026.pdf
+├── PhonePe_Statement_Mar2026_Apr2026.pdf
+├── project_structure.txt
+├── requirements.txt
+├── runtime.txt
+├── schema.sql
 ├── test_gemini.py
-├── train_category.py
-└── utils
-    ├── db.py
-    ├── db_migrate.py
-    └── decorators.py
+└── train_category.py

@@ -31,6 +31,7 @@ from routes.oauth import oauth_bp
 from routes.chatbot import chat_bp
 from routes.ai_insights import ai_insights_bp
 from routes.preview import preview_bp
+from routes.credit_risk import credit_risk_bp
 
 # ─────────────────────────────────────────────────────────────
 # App
@@ -82,6 +83,7 @@ app.register_blueprint(insights_bp)
 app.register_blueprint(chat_bp)
 app.register_blueprint(ai_insights_bp)
 app.register_blueprint(preview_bp)
+app.register_blueprint(credit_risk_bp)
 
 # ─────────────────────────────────────────────────────────────
 # Page routes

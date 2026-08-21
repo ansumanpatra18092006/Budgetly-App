@@ -4,6 +4,15 @@
 @media (max-width: 1024px) {
     .sidebar { width: 220px; }
     .main-content { padding: var(--spacing-xl); }
+    .fi-dashboard { gap: var(--spacing-md); }
+    .fi-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* =============================================
+   RESPONSIVE — PROFILE (≤900px)
+============================================= */
+@media (max-width: 900px) {
+    .profile-layout { grid-template-columns: 1fr; }
 }
 
 /* =============================================
@@ -14,13 +23,43 @@
     .stats-grid  { grid-template-columns: 1fr; }
     .charts-grid { grid-template-columns: 1fr; }
     .page-header { flex-direction: column; }
-    .insights-grid { grid-template-columns: 1fr; }
     .filter-controls { gap: var(--spacing-sm); }
+    .fi-hero-top { flex-direction: column; align-items: flex-start; }
+    .fi-quick-grid { grid-template-columns: 1fr; }
+    
+    /* Insights Navigation */
+    .fi-section-nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        justify-content: flex-start;
+    }
+    .fi-section-nav::-webkit-scrollbar { display: none; }
+    .fi-nav-item { flex-shrink: 0; }
+    .fi-nav-divider { min-height: 24px; }
+
+    /* Credit Assessment Section Navigation (Phase 7) */
+    .ca-section-nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        justify-content: flex-start;
+    }
+    .ca-section-nav::-webkit-scrollbar { display: none; }
+    .ca-nav-item { flex-shrink: 0; }
 }
 
 /* =============================================
-   RESPONSIVE — PROFILE (≤900px)
+   RESPONSIVE — CREDIT ASSESSMENT (≤1024px / ≤768px)
 ============================================= */
-@media (max-width: 900px) {
-    .profile-layout { grid-template-columns: 1fr; }
+@media (max-width: 1024px) {
+    .ca-layout { grid-template-columns: 1fr; }
+    .ca-result-card { position: static; }
+}
+
+@media (max-width: 768px) {
+    .ca-result-top { flex-wrap: wrap; }
+    .ca-risk-probability { font-size: 1.85rem; }
 }

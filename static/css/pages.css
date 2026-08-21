@@ -231,8 +231,6 @@
    RESPONSIVE TWEAKS
 ================================================================ */
 @media (max-width: 900px) {
-    .insights-tabs { gap: 3px; }
-    .insights-tab { padding: 7px 12px; font-size: 0.8rem; }
     .stat-value { font-size: 1.5rem; }
     .profile-avatar { width: 80px; height: 80px; font-size: 1.7rem; }
 }
