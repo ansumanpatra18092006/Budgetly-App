@@ -120,6 +120,42 @@ def _validate_application_payload(applicant):
     return errors
 
 
+@loan_application_bp.route("/api/lenders", methods=["GET"])
+@login_required
+def list_lenders():
+    """
+    Minimal borrower-facing lender list for clients that can't consume
+    the server-rendered <select> in loan_application.html (e.g. the
+    Flutter app).
+
+    Reuses the exact same eligibility query as loan_apply_page() above
+    — role='lender' AND status='active', ordered by name — so this
+    never drifts from what the web borrower form already offers. Only
+    id/name are returned; no password, email, role, or status fields.
+    Any authenticated user may call this (it does not accept or use a
+    borrower_id), matching this endpoint's existing @login_required
+    convention.
+    """
+    conn = get_db()
+    try:
+        lenders = conn.execute(
+            "SELECT id, name FROM users WHERE role='lender' AND status='active' ORDER BY name ASC"
+        ).fetchall()
+    except Exception:
+        return jsonify({
+            "status": "error",
+            "error_type": "internal_error",
+            "errors": ["Failed to load lenders. Please try again."],
+        }), 500
+    finally:
+        conn.close()
+
+    return jsonify({
+        "status": "success",
+        "lenders": [{"id": row["id"], "name": row["name"]} for row in lenders],
+    })
+
+
 @loan_application_bp.route("/api/loan-applications", methods=["POST"])
 @login_required
 @consumer_required
