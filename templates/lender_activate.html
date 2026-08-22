@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activate Analyst Account · Budgetly</title>
+    <style>
+        :root {
+            --brand: #5b21b6;
+            --brand-dark: #4c1d95;
+            --ink: #1f2937;
+            --muted: #6b7280;
+            --border: #e5e7eb;
+            --bg: #f5f4fb;
+            --danger: #b91c1c;
+            --danger-bg: #fef2f2;
+            --success: #15803d;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--ink);
+            padding: 24px;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 420px;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 36px 32px;
+            box-shadow: 0 10px 30px rgba(17, 24, 39, 0.06);
+        }
+
+        .brand {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--brand-dark);
+            letter-spacing: -0.01em;
+        }
+
+        .brand p {
+            margin: 4px 0 0;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+        }
+
+        h2 {
+            font-size: 17px;
+            font-weight: 600;
+            text-align: center;
+            margin: 0 0 24px;
+            color: var(--ink);
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+
+        .field {
+            margin-bottom: 18px;
+        }
+
+        input[type="email"],
+        input[type="password"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--ink);
+            background: #fafafa;
+        }
+
+        input[readonly] {
+            color: var(--muted);
+            background: #f3f4f6;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--brand);
+            background: #ffffff;
+        }
+
+        button {
+            width: 100%;
+            padding: 11px 12px;
+            border: none;
+            border-radius: 8px;
+            background: var(--brand);
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 4px;
+        }
+
+        button:hover {
+            background: var(--brand-dark);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .message {
+            font-size: 13px;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 18px;
+            display: none;
+        }
+
+        .message.error {
+            display: block;
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid #fecaca;
+        }
+
+        .message.success {
+            display: block;
+            background: #f0fdf4;
+            color: var(--success);
+            border: 1px solid #bbf7d0;
+        }
+
+        .invalid-state {
+            text-align: center;
+        }
+
+        .invalid-state p {
+            color: var(--danger);
+            font-size: 14px;
+            margin: 0 0 20px;
+        }
+
+        .invalid-state a {
+            color: var(--brand);
+            font-weight: 600;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .invalid-state a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <div class="brand">
+            <h1>Budgetly</h1>
+            <p>Credit Risk Intelligence</p>
+        </div>
+
+        {% if error %}
+        <h2>Activate Analyst Account</h2>
+        <div class="invalid-state">
+            <p>{{ error }}</p>
+            <a href="/lender/login">Go to lender login</a>
+        </div>
+        {% else %}
+        <h2>Activate Analyst Account</h2>
+
+        <div id="formMessage" class="message"></div>
+
+        <form id="activateForm" novalidate data-token="{{ token }}">
+            <div class="field">
+                <label for="email">Email</label>
+                <input type="email" id="email" value="{{ email }}" readonly>
+            </div>
+            <div class="field">
+                <label for="password">New Password</label>
+                <input type="password" id="password" minlength="6" required>
+            </div>
+            <div class="field">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" minlength="6" required>
+            </div>
+            <button type="submit" id="activateBtn">Activate Account</button>
+        </form>
+
+        <script>
+            const form = document.getElementById("activateForm");
+            const token = form.dataset.token;
+            const messageEl = document.getElementById("formMessage");
+            const btn = document.getElementById("activateBtn");
+
+            function showMessage(text, kind) {
+                messageEl.textContent = text;
+                messageEl.className = "message " + kind;
+            }
+
+            form.addEventListener("submit", async function (e) {
+                e.preventDefault();
+                messageEl.className = "message";
+
+                const password = document.getElementById("password").value;
+                const confirmPassword = document.getElementById("confirmPassword").value;
+
+                if (password !== confirmPassword) {
+                    showMessage("Passwords do not match.", "error");
+                    return;
+                }
+                if (password.length < 6) {
+                    showMessage("Password must be at least 6 characters.", "error");
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.textContent = "Activating…";
+
+                try {
+                    const res = await fetch("/lender/activate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            token: token,
+                            password: password,
+                            confirm_password: confirmPassword,
+                        }),
+                    });
+                    const data = await res.json();
+
+                    if (data.success) {
+                        showMessage("Account activated. Redirecting to login…", "success");
+                        setTimeout(function () {
+                            window.location.href = data.redirect || "/lender/login";
+                        }, 1200);
+                    } else {
+                        showMessage(data.message || "Could not activate the account.", "error");
+                        btn.disabled = false;
+                        btn.textContent = "Activate Account";
+                    }
+                } catch (err) {
+                    showMessage("Something went wrong. Please try again.", "error");
+                    btn.disabled = false;
+                    btn.textContent = "Activate Account";
+                }
+            });
+        </script>
+        {% endif %}
+    </div>
+</body>
+
+</html>

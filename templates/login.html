@@ -1192,6 +1192,35 @@
             width: 100%;
         }
 
+        /* Secondary nav link back to the public landing page — visually
+           quieter than .link (no violet color, no underline) so it never
+           competes with the login form or the "Create one free" CTA. */
+        .back-home-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 20px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            cursor: pointer;
+            transition: color var(--t-fast);
+        }
+
+        .back-home-link i {
+            font-size: 0.78em;
+            transition: transform var(--t-fast);
+        }
+
+        .back-home-link:hover {
+            color: var(--text-secondary);
+        }
+
+        .back-home-link:hover i {
+            transform: translateX(-2px);
+        }
+
         /* ==========================================================================
        BUTTONS — mirrors components.css .btn-primary / .btn-secondary
     ========================================================================== */
@@ -1635,6 +1664,10 @@
         <!-- RIGHT FORM CARD -->
         <div class="card">
             <div class="card-shine"></div>
+
+            <a href="{{ url_for('home') }}" class="back-home-link">
+                <i class="fa-solid fa-arrow-left"></i> Back to Home
+            </a>
 
             <div class="logo-area">
                 <div class="mobile-brand">

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budgetly | Apply for a Loan</title>
+    <meta name="description" content="Apply for a loan on Budgetly">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pages.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+</head>
+
+<body>
+    <div class="app-container">
+        <main class="main-content" style="margin-left:0; max-width:920px; margin:0 auto; padding: var(--spacing-xl);">
+
+            <header class="page-header">
+                <div class="header-text">
+                    <h1 class="page-title">Apply for a Loan</h1>
+                    <p class="page-subtitle">
+                        <i class="fa-solid fa-file-invoice" aria-hidden="true"></i>
+                        Fill in your application and choose a lender to submit it to.
+                    </p>
+                </div>
+                <a href="/" class="btn-secondary" style="text-decoration:none;">
+                    <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to Budgetly
+                </a>
+            </header>
+
+            <div class="health-score-card" style="margin-bottom: var(--spacing-lg);">
+                <div class="card-header">
+                    <div>
+                        <h3 class="card-title" style="display:flex;align-items:center;gap:8px;">
+                            <i class="fa-solid fa-user" style="color:var(--primary);"></i>
+                            Applying as
+                        </h3>
+                        <p class="card-subtitle">{{ borrower.name or 'Your account' }} &middot; {{ borrower.email }}</p>
+                    </div>
+                </div>
+                <p class="ca-field-hint" style="margin:0;">
+                    Your name and account details are taken from your Budgetly profile — you don't need to
+                    re-enter them. An application reference and submission date will be assigned automatically
+                    once you submit.
+                </p>
+            </div>
+
+            <div class="health-score-card" id="laApplicationsSection" style="margin-bottom: var(--spacing-lg);">
+                <div class="card-header">
+                    <div>
+                        <h3 class="card-title" style="display:flex;align-items:center;gap:8px;">
+                            <i class="fa-solid fa-folder-open" style="color:var(--primary);"></i>
+                            Your Applications
+                        </h3>
+                        <p class="card-subtitle">Status is synced directly from your lender's review queue.</p>
+                    </div>
+                </div>
+                <div id="laApplicationsList">
+                    <p class="ca-field-hint" style="margin:0;">Loading your applications...</p>
+                </div>
+            </div>
+
+            <div class="health-score-card">
+                <form id="loanApplicationForm" novalidate>
+
+                    <div class="form-section">
+                        <h3 class="form-title">Loan Details</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="la_lender_id" class="form-label">Lender</label>
+                                <select id="la_lender_id" class="form-select" required>
+                                    <option value="" disabled selected>Select a lender…</option>
+                                    {% for lender in lenders %}
+                                    <option value="{{ lender.id }}">{{ lender.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% if not lenders %}
+                                <span class="ca-field-hint">No lenders are currently accepting applications.
+                                    Please check back later.</span>
+                                {% endif %}
+                            </div>
+                            <div class="form-group">
+                                <label for="la_credit_amount" class="form-label">Loan Amount</label>
+                                <input type="number" id="la_credit_amount" class="form-input" min="0" step="1"
+                                    placeholder="e.g. 1500" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_duration_months" class="form-label">Loan Tenure (months)</label>
+                                <input type="number" id="la_duration_months" class="form-input" min="1" step="1"
+                                    placeholder="e.g. 24" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_purpose" class="form-label">Purpose</label>
+                                <select id="la_purpose" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A40">Car (new)</option>
+                                    <option value="A41">Car (used)</option>
+                                    <option value="A42">Furniture / equipment</option>
+                                    <option value="A43">Radio / television</option>
+                                    <option value="A44">Domestic appliances</option>
+                                    <option value="A45">Repairs</option>
+                                    <option value="A46">Education</option>
+                                    <option value="A48">Retraining</option>
+                                    <option value="A49">Business</option>
+                                    <option value="A410">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_installment_rate" class="form-label">Installment Commitment</label>
+                                <select id="la_installment_rate" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="1">Low</option>
+                                    <option value="2">Moderate</option>
+                                    <option value="3">High</option>
+                                    <option value="4">Very high</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3 class="form-title">Credit Profile</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="la_checking_account" class="form-label">Checking Account</label>
+                                <select id="la_checking_account" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A11">Overdrawn</option>
+                                    <option value="A12">Low balance</option>
+                                    <option value="A13">Adequate balance</option>
+                                    <option value="A14">No checking account</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_credit_history" class="form-label">Credit History</label>
+                                <select id="la_credit_history" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A30">No credit taken previously</option>
+                                    <option value="A31">All previous credit paid on time</option>
+                                    <option value="A32">Existing credit paid on time so far</option>
+                                    <option value="A33">Repayment delays in the past</option>
+                                    <option value="A34">Critical credit history</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_existing_credits" class="form-label">Existing Credit Lines</label>
+                                <input type="number" id="la_existing_credits" class="form-input" min="1" step="1"
+                                    placeholder="e.g. 1" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_other_installment_plans" class="form-label">Other Installment
+                                    Plans</label>
+                                <select id="la_other_installment_plans" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A141">Bank</option>
+                                    <option value="A142">Retail / store financing</option>
+                                    <option value="A143">None</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_savings_account" class="form-label">Savings</label>
+                                <select id="la_savings_account" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A61">Minimal savings</option>
+                                    <option value="A62">Low savings balance</option>
+                                    <option value="A63">Moderate savings balance</option>
+                                    <option value="A64">High savings balance</option>
+                                    <option value="A65">No savings account / unknown</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3 class="form-title">Employment &amp; Stability</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="la_employment_since" class="form-label">Employment Duration</label>
+                                <select id="la_employment_since" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A71">Unemployed</option>
+                                    <option value="A72">Less than 1 year</option>
+                                    <option value="A73">1 – 4 years</option>
+                                    <option value="A74">4 – 7 years</option>
+                                    <option value="A75">7+ years</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_job" class="form-label">Job Type</label>
+                                <select id="la_job" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A171">Unemployed / unskilled, non-resident</option>
+                                    <option value="A172">Unskilled, resident</option>
+                                    <option value="A173">Skilled employee / official</option>
+                                    <option value="A174">Management / self-employed / highly qualified</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_residence_since" class="form-label">Residence Duration (years)</label>
+                                <input type="number" id="la_residence_since" class="form-input" min="1" step="1"
+                                    placeholder="e.g. 2" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_housing" class="form-label">Housing</label>
+                                <select id="la_housing" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A151">Rent</option>
+                                    <option value="A152">Own</option>
+                                    <option value="A153">For free</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_property" class="form-label">Property</label>
+                                <select id="la_property" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A121">Real estate</option>
+                                    <option value="A122">Building society savings / life insurance</option>
+                                    <option value="A123">Car or other</option>
+                                    <option value="A124">Unknown / no property</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3 class="form-title">Applicant Profile</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="la_age" class="form-label">Age</label>
+                                <input type="number" id="la_age" class="form-input" min="18" step="1"
+                                    placeholder="e.g. 35" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_personal_status_sex" class="form-label">Personal Status</label>
+                                <select id="la_personal_status_sex" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A91">Male : divorced / separated</option>
+                                    <option value="A92">Female : divorced / separated / married</option>
+                                    <option value="A93">Male : single</option>
+                                    <option value="A94">Male : married / widowed</option>
+                                    <option value="A95">Female : single</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_dependents" class="form-label">Number of Dependents</label>
+                                <input type="number" id="la_dependents" class="form-input" min="1" step="1"
+                                    placeholder="1 or 2" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_telephone" class="form-label">Registered Telephone</label>
+                                <select id="la_telephone" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A191">None</option>
+                                    <option value="A192">Yes, under my name</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_foreign_worker" class="form-label">Foreign Worker Status</label>
+                                <select id="la_foreign_worker" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A201">Yes</option>
+                                    <option value="A202">No</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="la_other_debtors" class="form-label">Guarantor / Co-Applicant</label>
+                                <select id="la_other_debtors" class="form-select" required>
+                                    <option value="" disabled selected>Select...</option>
+                                    <option value="A101">None</option>
+                                    <option value="A102">Co-applicant</option>
+                                    <option value="A103">Guarantor</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="laFormErrors" class="ca-error-list hidden"></div>
+                    <div id="laFormSuccess" class="hidden" style="margin: var(--spacing-md) 0;"></div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary" id="laSubmitBtn">
+                            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                            Submit Application
+                        </button>
+                        <button type="button" class="btn-secondary" id="laResetBtn">
+                            <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
+                            Clear Form
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/loan_application.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initLoanApplication();
+            initLaApplicationsList();
+        });
+    </script>
+</body>
+
+</html>

@@ -2,9 +2,6 @@ pfm_proj_work4
 ├── ml
 │   ├── credit_risk
 │   │   ├── models
-│   │   │   ├── anomaly_model.pkl
-│   │   │   ├── calibrated_preprocessor.pkl
-│   │   │   └── calibrated_xgboost.pkl
 │   │   ├── __init__.py
 │   │   ├── anomaly.py
 │   │   ├── anomaly_inference.py
@@ -24,7 +21,6 @@ pfm_proj_work4
 │   │   ├── test_credit_engine.py
 │   │   └── validation.py
 │   ├── anomaly_model.py
-│   ├── category.pkl
 │   ├── category_model.py
 │   ├── forecast_model.py
 │   ├── recommender.py
@@ -32,6 +28,7 @@ pfm_proj_work4
 ├── routes
 │   ├── .gitignore
 │   ├── __init__.py
+│   ├── admin.py
 │   ├── ai_insights.py
 │   ├── auth.py
 │   ├── chatbot.py
@@ -39,15 +36,19 @@ pfm_proj_work4
 │   ├── dashboard.py
 │   ├── goals.py
 │   ├── insights.py
+│   ├── lender.py
+│   ├── loan_application.py
 │   ├── oauth.py
 │   ├── preview.py
 │   └── transactions.py
 ├── services
 │   ├── __init__.py
+│   ├── affordability_service.py
 │   ├── analytics_services.py
 │   ├── budget_service.py
 │   ├── credit_risk_service.py
 │   ├── decision_engine.py
+│   ├── financial_behavior_service.py
 │   ├── gemini_service.py
 │   ├── recurring_service.py
 │   └── transactions_services.py
@@ -56,6 +57,7 @@ pfm_proj_work4
 │   │   ├── base.css
 │   │   ├── components.css
 │   │   ├── layout.css
+│   │   ├── lender_workspace.css
 │   │   ├── pages.css
 │   │   ├── payment.css
 │   │   ├── responsive.css
@@ -70,12 +72,21 @@ pfm_proj_work4
 │       ├── history.js
 │       ├── insights.js
 │       ├── integration_patches.js
+│       ├── lender_workspace.js
+│       ├── loan_application.js
 │       ├── navigation.js
 │       ├── profile.js
 │       ├── roadmap.js
 │       └── transactions.js
 ├── templates
+│   ├── admin_login.html
+│   ├── admin_workspace.html
 │   ├── index.html
+│   ├── landing.html
+│   ├── lender_activate.html
+│   ├── lender_login.html
+│   ├── lender_workspace.html
+│   ├── loan_application.html
 │   ├── login.html
 │   └── reset_password.html
 ├── utils
@@ -85,17 +96,11 @@ pfm_proj_work4
 ├── .env
 ├── .gitignore
 ├── .python-version
-├── add_transaction.jpeg
 ├── app.py
-├── budget.db
-├── Budgetly_ppt-1.pptx
-├── dashboard.jpeg
 ├── data.csv
 ├── generate_structure.py
-├── gpay_statement_20250901_20260228.pdf
-├── login.jpeg
-├── PhonePe_Statement_Apr2025_Apr2026.pdf
-├── PhonePe_Statement_Mar2026_Apr2026.pdf
+├── package-lock.json
+├── package.json
 ├── project_structure.txt
 ├── requirements.txt
 ├── runtime.txt

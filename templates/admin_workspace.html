@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budgetly | Institution Administration</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0f172a;
+            --accent: #64748b;
+            --success: #059669;
+            --success-light: rgba(5, 150, 105, 0.14);
+            --danger: #dc2626;
+            --danger-light: rgba(220, 38, 38, 0.13);
+            --bg-page: #050608;
+            --bg-card: #0a0c11;
+            --bg-input: rgba(22, 26, 36, 0.65);
+            --border: rgba(148, 163, 184, 0.14);
+            --border-hover: rgba(148, 163, 184, 0.28);
+            --text-primary: #e7e9ef;
+            --text-secondary: #98a0b3;
+            --text-tertiary: #5a6178;
+            --grad-brand: linear-gradient(135deg, #0f172a 0%, #334155 60%, #64748b 100%);
+            --radius-md: 10px;
+            --radius-lg: 16px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-page);
+            background-image: radial-gradient(circle at 15% 0%, rgba(51, 65, 85, 0.16), transparent 45%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 32px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background: var(--grad-brand);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+        }
+
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.2;
+        }
+
+        .brand-name {
+            font-weight: 800;
+            font-size: 0.98rem;
+        }
+
+        .brand-sub {
+            font-size: 0.66rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .header-role {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+
+        .logout-link {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .logout-link:hover {
+            color: var(--text-primary);
+        }
+
+        main {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 32px 24px 60px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 800;
+        }
+
+        .section-desc {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 10px 16px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--grad-brand);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            filter: brightness(1.15);
+        }
+
+        .btn-secondary {
+            background: var(--bg-input);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--border-hover);
+        }
+
+        .btn-danger {
+            background: var(--danger-light);
+            color: #fca5a5;
+            border: 1px solid rgba(220, 38, 38, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .search-input {
+            flex: 1;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.85rem;
+            padding: 10px 14px;
+            outline: none;
+        }
+
+        .search-input:focus {
+            border-color: var(--border-hover);
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-tertiary);
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 14px 18px;
+            font-size: 0.86rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 3px 9px;
+            border-radius: 999px;
+        }
+
+        .badge-active {
+            background: var(--success-light);
+            color: #6ee7b7;
+        }
+
+        .badge-disabled {
+            background: var(--danger-light);
+            color: #fca5a5;
+        }
+
+        .badge-role {
+            background: rgba(100, 116, 139, 0.18);
+            color: #cbd5e1;
+        }
+
+        .badge-pending {
+            background: rgba(59, 130, 246, 0.14);
+            color: #93c5fd;
+        }
+
+        .badge-expired {
+            background: rgba(217, 119, 6, 0.14);
+            color: #fbbf24;
+        }
+
+        .badge-failed {
+            background: var(--danger-light);
+            color: #fca5a5;
+        }
+
+        .badge-none {
+            background: rgba(100, 116, 139, 0.12);
+            color: var(--text-tertiary);
+        }
+
+        .empty-state {
+            padding: 48px 18px;
+            text-align: center;
+            color: var(--text-tertiary);
+            font-size: 0.86rem;
+        }
+
+        .row-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .row-actions button {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            border-radius: 7px;
+            padding: 5px 10px;
+            font-size: 0.76rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .row-actions button:hover {
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 4, 8, 0.72);
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            padding: 20px;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 440px;
+            padding: 28px 26px 24px;
+        }
+
+        .modal h2 {
+            font-size: 1.05rem;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+
+        .modal p.sub {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 0.74rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .input-field {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.88rem;
+            padding: 10px 12px;
+            outline: none;
+        }
+
+        .input-field:focus {
+            border-color: var(--border-hover);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal-actions .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .modal-error {
+            display: none;
+            background: var(--danger-light);
+            color: #fca5a5;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 0.8rem;
+            margin-bottom: 14px;
+        }
+
+        .modal-error.show {
+            display: block;
+        }
+
+        .invite-result {
+            display: none;
+            background: rgba(100, 116, 139, 0.14);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.78rem;
+            margin-top: 14px;
+            word-break: break-all;
+        }
+
+        .invite-result.show {
+            display: block;
+        }
+
+        .invite-result .label {
+            color: var(--text-tertiary);
+            font-weight: 700;
+            margin-top: 8px;
+        }
+
+        .invite-result .label:first-child {
+            margin-top: 0;
+        }
+
+        .invite-result code {
+            color: #93c5fd;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .promote-preview {
+            display: none;
+            background: rgba(100, 116, 139, 0.14);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.82rem;
+            margin-bottom: 14px;
+        }
+
+        .promote-preview.show {
+            display: block;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: var(--radius-md);
+            padding: 12px 16px;
+            font-size: 0.82rem;
+            box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+            display: none;
+            max-width: 320px;
+            z-index: 300;
+        }
+
+        .toast.show {
+            display: block;
+        }
+
+        .toast.error {
+            border-left-color: var(--danger);
+        }
+
+        .toast.success {
+            border-left-color: var(--success);
+        }
+
+        .toast-title {
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        .toast-msg {
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="brand">
+            <div class="brand-icon"><i class="fa-solid fa-user-shield"></i></div>
+            <div class="brand-text">
+                <span class="brand-name">Budgetly</span>
+                <span class="brand-sub">Institution Administration</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <span class="header-role"><i class="fa-solid fa-circle-user"></i> Administrator</span>
+            <a class="logout-link" id="logoutLink">Sign out</a>
+        </div>
+    </header>
+
+    <main>
+        <div class="section-header">
+            <div>
+                <div class="section-title">Analyst / Lender Access</div>
+                <div class="section-desc">Provision new analyst accounts or promote an existing account to lender
+                    access.</div>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn btn-secondary" id="promoteBtn"><i class="fa-solid fa-user-check"></i> Promote
+                    Existing</button>
+                <button class="btn btn-primary" id="provisionBtn"><i class="fa-solid fa-plus"></i> Provision
+                    Analyst</button>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <input type="text" class="search-input" id="searchInput"
+                placeholder="Search provisioned analysts by name or email…">
+        </div>
+
+        <div class="section-title" style="font-size:0.95rem; margin-bottom:12px;">Provisioned Analysts</div>
+
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Account Status</th>
+                        <th>Invitation Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="lendersTableBody"></tbody>
+            </table>
+            <div class="empty-state" id="emptyState" style="display:none;">
+                <i class="fa-solid fa-inbox" style="font-size:1.4rem; margin-bottom:8px; display:block;"></i>
+                No analyst accounts provisioned yet.
+            </div>
+        </div>
+    </main>
+
+    <!-- Provision Modal -->
+    <div class="modal-overlay" id="provisionModal">
+        <div class="modal">
+            <h2>Provision Analyst</h2>
+            <p class="sub">Creates a new lender account. The analyst will set their own password via an emailed invite
+                link.</p>
+            <div class="modal-error" id="provisionError"></div>
+            <div class="form-group">
+                <label class="input-label" for="provisionName">Full name</label>
+                <input type="text" id="provisionName" class="input-field" placeholder="Anshu Patra">
+            </div>
+            <div class="form-group">
+                <label class="input-label" for="provisionEmail">Email</label>
+                <input type="email" id="provisionEmail" class="input-field" placeholder="analyst@bank.com">
+            </div>
+            <div class="invite-result" id="inviteResult"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="provisionCancel">Cancel</button>
+                <button class="btn btn-primary" id="provisionSubmit"><i class="fa-solid fa-user-plus"></i>
+                    Provision</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Promote Modal -->
+    <div class="modal-overlay" id="promoteModal">
+        <div class="modal">
+            <h2>Promote Existing Account</h2>
+            <p class="sub">Search by email, review the account, then explicitly confirm to grant lender access.</p>
+            <div class="modal-error" id="promoteError"></div>
+            <div class="form-group">
+                <label class="input-label" for="promoteEmail">Email</label>
+                <input type="email" id="promoteEmail" class="input-field" placeholder="existing.user@example.com">
+            </div>
+            <button class="btn btn-secondary" id="promoteSearchBtn"
+                style="width:100%; justify-content:center; margin-bottom:14px;">
+                <i class="fa-solid fa-magnifying-glass"></i> Search
+            </button>
+            <div class="promote-preview" id="promotePreview"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="promoteCancel">Cancel</button>
+                <button class="btn btn-primary" id="promoteConfirm" disabled><i class="fa-solid fa-user-check"></i>
+                    Promote to Lender</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <div class="toast-title" id="toastTitle"></div>
+        <div class="toast-msg" id="toastMsg"></div>
+    </div>
+
+    <script>
+        'use strict';
+
+        function showToast(type, title, message, duration = 4500) {
+            const toast = document.getElementById('toast');
+            toast.className = 'toast show ' + type;
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastMsg').textContent = message;
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(() => toast.classList.remove('show'), duration);
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '—';
+            try {
+                return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } catch { return '—'; }
+        }
+
+        function invitationBadge(status) {
+            const map = {
+                pending: ['badge-pending', 'Pending'],
+                active: ['badge-active', 'Active'],
+                expired: ['badge-expired', 'Expired'],
+                failed: ['badge-failed', 'Failed'],
+                disabled: ['badge-disabled', 'Disabled'],
+                none: ['badge-none', 'N/A'],
+            };
+            const [cls, label] = map[status] || map.none;
+            return `<span class="badge ${cls}">${label}</span>`;
+        }
+
+        // ---------- Table ----------
+
+        async function loadLenders(q = '') {
+            const tbody = document.getElementById('lendersTableBody');
+            const empty = document.getElementById('emptyState');
+            try {
+                const res = await fetch('/admin/api/lenders' + (q ? `?q=${encodeURIComponent(q)}` : ''), { credentials: 'same-origin' });
+                if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                if (res.status === 403) { showToast('error', 'Forbidden', 'Your session no longer has admin access.'); return; }
+                const data = await res.json();
+                const rows = (data.data || []);
+
+                tbody.innerHTML = '';
+                empty.style.display = rows.length ? 'none' : 'block';
+
+                for (const u of rows) {
+                    const tr = document.createElement('tr');
+                    const statusBadge = u.status === 'disabled'
+                        ? '<span class="badge badge-disabled">Disabled</span>'
+                        : '<span class="badge badge-active">Active</span>';
+                    const canResend = ['pending', 'expired', 'failed'].includes(u.invitation_status) && u.status !== 'disabled';
+                    tr.innerHTML = `
+                        <td>${escapeHtml(u.name)}</td>
+                        <td>${escapeHtml(u.email)}</td>
+                        <td><span class="badge badge-role">Lender</span></td>
+                        <td>${statusBadge}</td>
+                        <td>${invitationBadge(u.invitation_status)}</td>
+                        <td>${formatDate(u.created_at)}</td>
+                        <td class="row-actions">
+                            ${canResend ? `<button data-action="resend" data-id="${u.id}">Resend</button>` : ''}
+                            <button data-action="toggle" data-id="${u.id}" data-status="${u.status === 'disabled' ? 'active' : 'disabled'}">
+                                ${u.status === 'disabled' ? 'Enable' : 'Disable'}
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            } catch (err) {
+                showToast('error', 'Network error', 'Could not load provisioned analysts.');
+            }
+        }
+
+        document.getElementById('lendersTableBody').addEventListener('click', async (e) => {
+            const resendBtn = e.target.closest('button[data-action="resend"]');
+            if (resendBtn) {
+                if (!confirm('Resend the invitation? The previous invitation link will stop working.')) return;
+                const id = resendBtn.dataset.id;
+                resendBtn.disabled = true;
+                try {
+                    const res = await fetch('/admin/api/resend-invitation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ user_id: Number(id) })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        let msg = data.message || 'Invitation resent.';
+                        const link = (data.dev_only && data.dev_only.invitation_activation_url) || data.activation_url;
+                        if (link) msg += ' Link: ' + link;
+                        showToast(data.email_status === 'failed' ? 'error' : 'success', 'Invitation', msg);
+                        loadLenders(document.getElementById('searchInput').value.trim());
+                    } else {
+                        showToast('error', 'Failed', data.message || 'Could not resend the invitation.');
+                    }
+                } catch {
+                    showToast('error', 'Network error', 'Could not resend the invitation.');
+                } finally {
+                    resendBtn.disabled = false;
+                }
+                return;
+            }
+
+            const btn = e.target.closest('button[data-action="toggle"]');
+            if (!btn) return;
+            const id = btn.dataset.id;
+            const status = btn.dataset.status;
+            if (status === 'disabled' && !confirm('Disable this analyst account? They will immediately lose access to the lender workspace.')) return;
+            btn.disabled = true;
+            try {
+                const res = await fetch('/admin/api/toggle-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ user_id: Number(id), status })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast('success', 'Updated', `Account ${status === 'disabled' ? 'disabled' : 're-enabled'}.`);
+                    loadLenders(document.getElementById('searchInput').value.trim());
+                } else {
+                    showToast('error', 'Failed', data.message || 'Could not update status.');
+                }
+            } catch {
+                showToast('error', 'Network error', 'Could not update status.');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        let searchDebounce;
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(() => loadLenders(e.target.value.trim()), 300);
+        });
+
+        // ---------- Provision modal ----------
+
+        const provisionModal = document.getElementById('provisionModal');
+        document.getElementById('provisionBtn').addEventListener('click', () => {
+            document.getElementById('provisionName').value = '';
+            document.getElementById('provisionEmail').value = '';
+            document.getElementById('provisionError').classList.remove('show');
+            document.getElementById('inviteResult').classList.remove('show');
+            provisionModal.classList.add('show');
+        });
+        document.getElementById('provisionCancel').addEventListener('click', () => provisionModal.classList.remove('show'));
+
+        document.getElementById('provisionSubmit').addEventListener('click', async () => {
+            const name = document.getElementById('provisionName').value.trim();
+            const email = document.getElementById('provisionEmail').value.trim();
+            const errBox = document.getElementById('provisionError');
+            errBox.classList.remove('show');
+
+            if (!name || !email) {
+                errBox.textContent = 'Full name and email are required.';
+                errBox.classList.add('show');
+                return;
+            }
+
+            const btn = document.getElementById('provisionSubmit');
+            btn.disabled = true;
+            try {
+                const res = await fetch('/admin/api/provision-lender', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ name, email })
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    showToast('success', 'Analyst provisioned', data.message);
+                    loadLenders();
+                    if (data.dev_only) {
+                        const box = document.getElementById('inviteResult');
+                        box.innerHTML = `
+                            <div class="label">Dev-mode invite (email not configured)</div>
+                            <div>Link: <code>${escapeHtml(data.dev_only.invite_link)}</code></div>
+                            <div class="label">Temporary password</div>
+                            <div><code>${escapeHtml(data.dev_only.temp_password)}</code></div>
+                        `;
+                        box.classList.add('show');
+                    } else {
+                        setTimeout(() => provisionModal.classList.remove('show'), 700);
+                    }
+                } else {
+                    errBox.textContent = data.message || 'Could not provision this account.';
+                    errBox.classList.add('show');
+                }
+            } catch {
+                errBox.textContent = 'Network error. Please try again.';
+                errBox.classList.add('show');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // ---------- Promote modal ----------
+
+        const promoteModal = document.getElementById('promoteModal');
+        let promoteTargetEmail = null;
+
+        document.getElementById('promoteBtn').addEventListener('click', () => {
+            document.getElementById('promoteEmail').value = '';
+            document.getElementById('promoteError').classList.remove('show');
+            document.getElementById('promotePreview').classList.remove('show');
+            document.getElementById('promoteConfirm').disabled = true;
+            promoteTargetEmail = null;
+            promoteModal.classList.add('show');
+        });
+        document.getElementById('promoteCancel').addEventListener('click', () => promoteModal.classList.remove('show'));
+
+        document.getElementById('promoteSearchBtn').addEventListener('click', async () => {
+            const email = document.getElementById('promoteEmail').value.trim();
+            const errBox = document.getElementById('promoteError');
+            const preview = document.getElementById('promotePreview');
+            const confirmBtn = document.getElementById('promoteConfirm');
+            errBox.classList.remove('show');
+            preview.classList.remove('show');
+            confirmBtn.disabled = true;
+            promoteTargetEmail = null;
+
+            if (!email) {
+                errBox.textContent = 'Enter an email to search.';
+                errBox.classList.add('show');
+                return;
+            }
+
+            try {
+                const res = await fetch(`/admin/api/search-user?email=${encodeURIComponent(email)}`, { credentials: 'same-origin' });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    const u = data.data;
+                    if (u.role === 'admin') {
+                        errBox.textContent = 'Admin accounts cannot be modified from this workspace.';
+                        errBox.classList.add('show');
+                        return;
+                    }
+                    if (u.role === 'lender') {
+                        errBox.textContent = 'This account is already a lender.';
+                        errBox.classList.add('show');
+                        return;
+                    }
+                    preview.innerHTML = `
+                        <strong>${escapeHtml(u.name)}</strong> — ${escapeHtml(u.email)}<br>
+                        Current role: <span class="badge badge-role">${escapeHtml(u.role)}</span>
+                        <div style="margin-top:8px; color:var(--text-secondary);">Promote this account to lender access?</div>
+                    `;
+                    preview.classList.add('show');
+                    promoteTargetEmail = u.email;
+                    confirmBtn.disabled = false;
+                } else {
+                    errBox.textContent = data.message || 'No account found with that email.';
+                    errBox.classList.add('show');
+                }
+            } catch {
+                errBox.textContent = 'Network error. Please try again.';
+                errBox.classList.add('show');
+            }
+        });
+
+        document.getElementById('promoteConfirm').addEventListener('click', async () => {
+            if (!promoteTargetEmail) return;
+            const btn = document.getElementById('promoteConfirm');
+            const errBox = document.getElementById('promoteError');
+            btn.disabled = true;
+            try {
+                const res = await fetch('/admin/api/promote-lender', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ email: promoteTargetEmail, confirm: true })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast('success', 'Account promoted', data.message);
+                    loadLenders();
+                    promoteModal.classList.remove('show');
+                } else {
+                    errBox.textContent = data.message || 'Could not promote this account.';
+                    errBox.classList.add('show');
+                    btn.disabled = false;
+                }
+            } catch {
+                errBox.textContent = 'Network error. Please try again.';
+                errBox.classList.add('show');
+                btn.disabled = false;
+            }
+        });
+
+        // ---------- Logout ----------
+
+        document.getElementById('logoutLink').addEventListener('click', async () => {
+            try {
+                await fetch('/logout', { method: 'POST', credentials: 'same-origin' });
+            } finally {
+                window.location.href = '/admin/login';
+            }
+        });
+
+        loadLenders();
+    </script>
+</body>
+
+</html>

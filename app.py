@@ -32,6 +32,9 @@ from routes.chatbot import chat_bp
 from routes.ai_insights import ai_insights_bp
 from routes.preview import preview_bp
 from routes.credit_risk import credit_risk_bp
+from routes.lender import lender_bp
+from routes.admin import admin_bp
+from routes.loan_application import loan_application_bp
 
 # ─────────────────────────────────────────────────────────────
 # App
@@ -84,6 +87,9 @@ app.register_blueprint(chat_bp)
 app.register_blueprint(ai_insights_bp)
 app.register_blueprint(preview_bp)
 app.register_blueprint(credit_risk_bp)
+app.register_blueprint(lender_bp)
+app.register_blueprint(admin_bp)
+app.register_blueprint(loan_application_bp)
 
 # ─────────────────────────────────────────────────────────────
 # Page routes
@@ -91,10 +97,13 @@ app.register_blueprint(credit_risk_bp)
 
 @app.route("/")
 def home():
-    if not session.get("logged_in"):
-        return redirect(url_for("login_page"))
+    if session.get("logged_in"):
+        return render_template("index.html")
 
-    return render_template("index.html")
+    # Public workspace-selection landing page. Purely a navigation surface —
+    # it creates no session and performs no authentication or role check.
+    # Existing role enforcement still happens at /login and /lender/login.
+    return render_template("landing.html")
 
 
 @app.route("/login")

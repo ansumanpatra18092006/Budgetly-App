@@ -379,7 +379,7 @@ function renderCreditEmptyState() {
     area.innerHTML = `
         <div class="empty-state" id="creditResultEmpty">
             <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
-            <p>Fill in the applicant details and submit to see the unified assessment.</p>
+            <p>Complete the application intake and assess to view the underwriting decision.</p>
         </div>
     `;
 }
@@ -390,7 +390,7 @@ function renderCreditLoadingState() {
     area.innerHTML = `
         <div class="ca-loading">
             <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-            <p>Evaluating multi-signal assessment…</p>
+            <p>Evaluating application…</p>
         </div>
     `;
 }
@@ -562,7 +562,7 @@ function renderUnifiedOverview(assessData, behaviorData, affordData, anomalyData
 
                 <div style="padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-tertiary); display: flex; flex-direction: column; justify-content: space-between;">
                     <div>
-                        <div style="font-size: 0.65rem; font-weight: 800; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Affordability</div>
+                        <div style="font-size: 0.65rem; font-weight: 800; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Repayment Capacity</div>
                         <div style="font-size: 0.95rem; font-weight: 700; color: ${affordColor}; margin-bottom: 12px; line-height: 1.2;">${affordLabel}</div>
                     </div>
                     <a href="#" onclick="switchCaTab('affordability'); return false;" style="font-size: 0.75rem; color: var(--primary); text-decoration: none; font-weight: 700;">View details &rarr;</a>
@@ -589,7 +589,7 @@ function renderUnifiedOverview(assessData, behaviorData, affordData, anomalyData
                 </div>
                 
                 <div style="width: 100%; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 12px;">
-                    <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; opacity: 0.8;">WHY THIS ASSESSMENT?</div>
+                    <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; opacity: 0.8;">WHY THIS DECISION?</div>
                     <ul style="margin: 0; padding-left: 20px; font-size: 0.85rem; line-height: 1.5; font-weight: 500; display: flex; flex-direction: column; gap: 6px;">
                         ${evidenceBullets.map(b => `<li>${b}</li>`).join('')}
                     </ul>
@@ -933,7 +933,7 @@ function renderFinancialBehavior(data, container) {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--spacing-md); margin-bottom: var(--spacing-xl);">
             
             <div style="padding: 14px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Income</div>
+                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Income Stability</div>
                 <div style="margin-bottom: 8px;">
                     <div style="font-size: 0.65rem; color: var(--text-secondary);">HISTORICAL STABILITY</div>
                     <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary);">${valOr(data.income.stability)}</div>
@@ -946,7 +946,7 @@ function renderFinancialBehavior(data, container) {
             </div>
 
             <div style="padding: 14px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Spending</div>
+                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Spending Volatility</div>
                 <div style="margin-bottom: 8px;">
                     <div style="font-size: 0.65rem; color: var(--text-secondary);">HISTORICAL VOLATILITY</div>
                     <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary);">${valOr(data.spending.volatility)}</div>
@@ -959,7 +959,7 @@ function renderFinancialBehavior(data, container) {
             </div>
 
             <div style="padding: 14px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Savings</div>
+                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Savings Behavior</div>
                 <div style="margin-bottom: 8px;">
                     <div style="font-size: 0.65rem; color: var(--text-secondary);">HISTORICAL STABILITY</div>
                     <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary);">${valOr(data.savings.stability)}</div>
@@ -971,7 +971,7 @@ function renderFinancialBehavior(data, container) {
             </div>
 
             <div style="padding: 14px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Obligations & Budget</div>
+                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; border-bottom: 1px solid var(--border-medium); padding-bottom: 4px;">Recurring Burden & Budget Discipline</div>
                 <div style="margin-bottom: 8px;">
                     <div style="font-size: 0.65rem; color: var(--text-secondary);">RECURRING BURDEN RATIO</div>
                     <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary);">${valOr(data.recurring.burden_ratio, '%')}</div>
@@ -986,13 +986,13 @@ function renderFinancialBehavior(data, container) {
         </div>
 
         <div style="margin-bottom: var(--spacing-xl);">
-            <h4 style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 12px; letter-spacing: 0.05em;">Behavioral Flags</h4>
+            <h4 style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 12px; letter-spacing: 0.05em;">Borrower Behavioral Flags</h4>
             ${flagsHtml || '<div style="padding: 12px; font-size: 0.85rem; color: var(--success); background: var(--success-light); border: 1px solid var(--success-border); border-radius: var(--radius-sm);"><i class="fa-solid fa-check-circle" style="margin-right: 6px;"></i> No concerning behavioral flags detected.</div>'}
         </div>
 
         <div style="padding: var(--spacing-md) var(--spacing-lg); background: var(--bg-elevated); border-radius: var(--radius-md); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
             <div>
-                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; letter-spacing: 0.05em;">BEHAVIORAL SUMMARY</div>
+                <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; letter-spacing: 0.05em;">BORROWER BEHAVIORAL SUMMARY</div>
                 <div style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary);">${escapeCaHtml(data.summary)}</div>
             </div>
             <i class="fa-solid fa-clipboard-user" style="font-size: 2rem; color: var(--border-strong); opacity: 0.5;"></i>
@@ -1136,7 +1136,7 @@ function renderAffordability(data, container) {
 
         <!-- Affordability Status -->
         <div style="padding: 16px; background: ${statusBg}; border: 1px solid ${statusBorder}; border-left: 4px solid ${statusColor}; border-radius: var(--radius-md);">
-            <div style="font-size: 0.75rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; letter-spacing: 0.05em;">Affordability</div>
+            <div style="font-size: 0.75rem; font-weight: 800; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; letter-spacing: 0.05em;">Repayment Capacity</div>
             
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
                 <i class="fa-solid ${icon}" style="font-size: 1.5rem; color: ${statusColor};"></i>

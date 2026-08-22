@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budgetly | Financial Intelligence Platform</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* ==========================================================================
+           Shared neutral shell + two workspace palettes:
+           - .card--borrower mirrors login.html's violet brand tokens
+           - .card--lender mirrors lender_login.html's slate/steel-blue tokens
+           Kept fully self-contained (no shared stylesheet dependency), matching
+           the pattern already used by login.html / lender_login.html.
+        ========================================================================== */
+        :root {
+            --violet: #7c3aed;
+            --violet-deep: #5b21b6;
+            --fuchsia: #a21caf;
+            --violet-light: rgba(124, 58, 237, 0.14);
+            --violet-border: rgba(124, 58, 237, 0.40);
+            --violet-glow: rgba(124, 58, 237, 0.30);
+
+            --steel: #1d4ed8;
+            --cyan: #0ea5e9;
+            --steel-light: rgba(29, 78, 216, 0.14);
+            --steel-border: rgba(29, 78, 216, 0.42);
+            --steel-glow: rgba(29, 78, 216, 0.30);
+
+            --bg-page: #05060c;
+            --bg-card: #0b0e18;
+            --border: rgba(148, 163, 184, 0.14);
+            --border-hover: rgba(148, 163, 184, 0.28);
+
+            --text-primary: #e9ecf6;
+            --text-secondary: #9aa3ba;
+            --text-tertiary: #5c6580;
+
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+            --shadow-card: 0 40px 130px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(148, 163, 184, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            height: 100%;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-page);
+            background-image:
+                radial-gradient(ellipse 70% 50% at 18% 0%, rgba(124, 58, 237, 0.16), transparent 55%),
+                radial-gradient(ellipse 70% 50% at 82% 100%, rgba(29, 78, 216, 0.18), transparent 55%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 20px;
+        }
+
+        .platform-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .platform-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.15rem;
+            background: linear-gradient(135deg, var(--violet-deep) 0%, var(--violet) 45%, var(--steel) 75%, var(--cyan) 100%);
+        }
+
+        .platform-name {
+            font-weight: 800;
+            font-size: 1.5rem;
+            letter-spacing: -0.01em;
+        }
+
+        .platform-tagline {
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 44px;
+            text-align: center;
+        }
+
+        .choose-heading {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 28px;
+            text-align: center;
+        }
+
+        .workspace-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        .workspace-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: var(--shadow-card);
+            padding: 34px 30px;
+            display: flex;
+            flex-direction: column;
+            text-decoration: none;
+            color: inherit;
+            transition: transform .18s ease, border-color .18s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .workspace-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-hover);
+        }
+
+        .workspace-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            transition: opacity .18s ease;
+            pointer-events: none;
+        }
+
+        .workspace-card:hover::before {
+            opacity: 1;
+        }
+
+        .card--borrower::before {
+            background: radial-gradient(circle at 20% 0%, var(--violet-glow), transparent 60%);
+        }
+
+        .card--lender::before {
+            background: radial-gradient(circle at 20% 0%, var(--steel-glow), transparent 60%);
+        }
+
+        .card-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            margin-bottom: 18px;
+        }
+
+        .card--borrower .card-icon {
+            background: var(--violet-light);
+            border: 1px solid var(--violet-border);
+            color: var(--violet);
+        }
+
+        .card--lender .card-icon {
+            background: var(--steel-light);
+            border: 1px solid var(--steel-border);
+            color: var(--cyan);
+        }
+
+        .card-eyebrow {
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .card--borrower .card-eyebrow {
+            color: var(--violet);
+        }
+
+        .card--lender .card-eyebrow {
+            color: var(--cyan);
+        }
+
+        .card-title {
+            font-size: 1.28rem;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .card-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 26px;
+            flex-grow: 1;
+        }
+
+        .card-cta {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 10px;
+            font-size: 0.88rem;
+            font-weight: 700;
+            padding: 12px 18px;
+            color: #fff;
+        }
+
+        .card--borrower .card-cta {
+            background: linear-gradient(135deg, var(--violet-deep) 0%, var(--violet) 55%, var(--fuchsia) 100%);
+        }
+
+        .card--lender .card-cta {
+            background: linear-gradient(135deg, #0f172a 0%, var(--steel) 60%, var(--cyan) 100%);
+        }
+
+        .card-cta i {
+            transition: transform .15s ease;
+        }
+
+        .workspace-card:hover .card-cta i {
+            transform: translateX(3px);
+        }
+
+        .platform-footnote {
+            margin-top: 40px;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .platform-footnote i {
+            color: var(--text-tertiary);
+        }
+
+        .admin-entry {
+            margin-top: 18px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            opacity: 0.7;
+            transition: opacity .15s ease, color .15s ease;
+        }
+
+        .admin-entry:hover {
+            opacity: 1;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 720px) {
+            .workspace-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .platform-name {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="platform-brand">
+        <div class="platform-icon"><i class="fa-solid fa-chart-line"></i></div>
+        <span class="platform-name">Budgetly</span>
+    </div>
+    <div class="platform-tagline">Financial Intelligence Platform</div>
+
+    <div class="choose-heading">Choose your workspace</div>
+
+    <div class="workspace-grid">
+
+        <a class="workspace-card card--borrower" href="/login">
+            <div class="card-icon"><i class="fa-solid fa-wallet"></i></div>
+            <div class="card-eyebrow">Borrower Workspace</div>
+            <div class="card-title">Personal Finance</div>
+            <p class="card-desc">Manage your finances, transactions, goals, and insights.</p>
+            <span class="card-cta">Continue as Borrower <i class="fa-solid fa-arrow-right"></i></span>
+        </a>
+
+        <a class="workspace-card card--lender" href="/lender/login">
+            <div class="card-icon"><i class="fa-solid fa-building-columns"></i></div>
+            <div class="card-eyebrow">Lender Workspace</div>
+            <div class="card-title">Credit Risk Intelligence</div>
+            <p class="card-desc">Assess borrower risk and support responsible lending decisions.</p>
+            <span class="card-cta">Continue as Lender <i class="fa-solid fa-arrow-right"></i></span>
+        </a>
+
+    </div>
+
+    <div class="platform-footnote"><i class="fa-solid fa-shield-halved"></i> You'll sign in separately for each
+        workspace.</div>
+
+    <a href="/admin/login" class="admin-entry"><i class="fa-solid fa-user-shield"></i> Institution admin sign in</a>
+
+</body>
+
+</html>

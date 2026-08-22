@@ -19,7 +19,6 @@ function showPage(pageId) {
         case 'goals': loadGoals(); break;
         case 'roadmap': loadRoadmap(); break;
         case 'insights': loadInsights(); break;
-        case 'credit-assessment': if (typeof initCreditAssessmentPage === 'function') initCreditAssessmentPage(); break;
         case 'profile': loadUserProfile(); break;
     }
 }

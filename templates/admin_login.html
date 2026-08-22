@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budgetly | Institution Administration Sign In</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            /* Same institutional slate/steel-blue family as the lender
+               workspace (per spec: admin should read as institutional,
+               not the consumer violet PFM look) — with a slightly
+               darker/cooler accent to still be visually distinct from
+               the lender console. */
+            --primary: #0f172a;
+            --primary-hover: #1e293b;
+            --primary-light: rgba(51, 65, 85, 0.18);
+            --primary-glow: rgba(51, 65, 85, 0.30);
+            --primary-border: rgba(100, 116, 139, 0.42);
+
+            --accent: #64748b;
+
+            --success: #059669;
+            --danger: #dc2626;
+            --danger-light: rgba(220, 38, 38, 0.13);
+
+            --bg-page: #050608;
+            --bg-card: #0a0c11;
+            --bg-input: rgba(22, 26, 36, 0.65);
+            --bg-input-focus: rgba(22, 26, 36, 0.9);
+
+            --text-primary: #e7e9ef;
+            --text-secondary: #98a0b3;
+            --text-tertiary: #5a6178;
+
+            --border: rgba(148, 163, 184, 0.14);
+            --border-hover: rgba(148, 163, 184, 0.28);
+            --border-focus: rgba(148, 163, 184, 0.55);
+
+            --grad-brand: linear-gradient(135deg, #0f172a 0%, #334155 60%, #64748b 100%);
+            --shadow-card: 0 40px 130px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(148, 163, 184, 0.10);
+
+            --radius-md: 10px;
+            --radius-lg: 16px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-page);
+            background-image:
+                radial-gradient(circle at 15% 10%, rgba(51, 65, 85, 0.20), transparent 45%),
+                radial-gradient(circle at 85% 90%, rgba(100, 116, 139, 0.12), transparent 45%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .wrap {
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 28px;
+        }
+
+        .brand-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: var(--grad-brand);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
+        }
+
+        .brand-name {
+            font-weight: 800;
+            font-size: 1.05rem;
+            letter-spacing: -0.01em;
+        }
+
+        .brand-sub {
+            text-align: center;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-top: -18px;
+            margin-bottom: 28px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-card);
+            padding: 36px 32px 28px;
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            margin-bottom: 6px;
+        }
+
+        .card-tagline {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 26px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            letter-spacing: 0.02em;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-field {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.92rem;
+            padding: 12px 40px 12px 14px;
+            outline: none;
+            transition: border-color .15s, background .15s;
+        }
+
+        .input-field:focus {
+            border-color: var(--border-focus);
+            background: var(--bg-input-focus);
+        }
+
+        .input-icon {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-tertiary);
+            font-size: 0.85rem;
+            pointer-events: none;
+        }
+
+        .password-toggle {
+            pointer-events: all;
+            cursor: pointer;
+        }
+
+        .error-msg {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.76rem;
+            color: var(--danger);
+            margin-top: 6px;
+        }
+
+        .form-group.error .error-msg {
+            display: flex;
+        }
+
+        .form-group.error .input-field {
+            border-color: var(--danger);
+        }
+
+        .btn-primary {
+            width: 100%;
+            background: var(--grad-brand);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.92rem;
+            font-weight: 700;
+            padding: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: filter .15s, transform .1s;
+        }
+
+        .btn-primary:hover {
+            filter: brightness(1.15);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .footnote {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 22px;
+            font-size: 0.72rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.02em;
+        }
+
+        .footnote i {
+            color: var(--accent);
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--primary);
+            border-radius: var(--radius-md);
+            padding: 12px 16px;
+            font-size: 0.82rem;
+            box-shadow: var(--shadow-card);
+            display: none;
+            max-width: 320px;
+            z-index: 100;
+        }
+
+        .toast.show {
+            display: block;
+        }
+
+        .toast.error {
+            border-left-color: var(--danger);
+        }
+
+        .toast-title {
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        .toast-msg {
+            color: var(--text-secondary);
+        }
+
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 18px;
+            font-size: 0.78rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <div class="brand">
+            <div class="brand-icon"><i class="fa-solid fa-user-shield"></i></div>
+            <span class="brand-name">Budgetly</span>
+        </div>
+        <div class="brand-sub">Institution Administration</div>
+
+        <div class="card">
+            <h1 class="card-title">Sign in to Admin Workspace</h1>
+            <p class="card-tagline">Restricted to authorized institution administrators.</p>
+
+            <form id="adminLoginForm" novalidate>
+                <div class="form-group">
+                    <label class="input-label" for="adminEmail">Email</label>
+                    <div class="input-wrapper">
+                        <input type="email" id="adminEmail" class="input-field" autocomplete="email" required>
+                        <i class="fa-solid fa-envelope input-icon" aria-hidden="true"></i>
+                    </div>
+                    <span class="error-msg" role="alert"><i class="fa-solid fa-circle-exclamation"></i><span
+                            class="error-text"></span></span>
+                </div>
+
+                <div class="form-group">
+                    <label class="input-label" for="adminPassword">Password</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="adminPassword" class="input-field" autocomplete="current-password"
+                            required>
+                        <i class="fa-solid fa-eye-slash input-icon password-toggle" data-target="adminPassword"
+                            role="button" tabindex="0" aria-label="Toggle password visibility"></i>
+                    </div>
+                    <span class="error-msg" role="alert"><i class="fa-solid fa-circle-exclamation"></i><span
+                            class="error-text"></span></span>
+                </div>
+
+                <button type="submit" class="btn-primary" id="adminLoginBtn">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Sign In
+                </button>
+            </form>
+
+            <div class="footnote"><i class="fa-solid fa-shield-halved"></i> Administrator access only — no public
+                signup</div>
+        </div>
+
+        <a href="/" class="back-link">&larr; Back to workspace selection</a>
+    </div>
+
+    <div class="toast" id="toast">
+        <div class="toast-title" id="toastTitle"></div>
+        <div class="toast-msg" id="toastMsg"></div>
+    </div>
+
+    <script>
+        'use strict';
+
+        function isValidEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+
+        function showError(input, msg) {
+            const group = input.closest('.form-group');
+            group.classList.add('error');
+            group.querySelector('.error-text').textContent = msg;
+        }
+        function clearErrors(form) {
+            form.querySelectorAll('.form-group').forEach(g => g.classList.remove('error'));
+        }
+
+        function showToast(type, title, message, duration = 4200) {
+            const toast = document.getElementById('toast');
+            toast.className = 'toast show' + (type === 'error' ? ' error' : '');
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastMsg').textContent = message;
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(() => toast.classList.remove('show'), duration);
+        }
+
+        document.querySelectorAll('.password-toggle').forEach(icon => {
+            icon.addEventListener('click', () => {
+                const target = document.getElementById(icon.dataset.target);
+                const show = target.type === 'password';
+                target.type = show ? 'text' : 'password';
+                icon.classList.toggle('fa-eye', show);
+                icon.classList.toggle('fa-eye-slash', !show);
+            });
+        });
+
+        const form = document.getElementById('adminLoginForm');
+        let submitting = false;
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (submitting) return;
+            clearErrors(form);
+
+            const emailInput = document.getElementById('adminEmail');
+            const passInput = document.getElementById('adminPassword');
+            let valid = true;
+            if (!isValidEmail(emailInput.value.trim())) { showError(emailInput, 'Please enter a valid email address'); valid = false; }
+            if (!passInput.value) { showError(passInput, 'Password is required'); valid = false; }
+            if (!valid) return;
+
+            submitting = true;
+            const btn = document.getElementById('adminLoginBtn');
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Signing in…';
+
+            try {
+                const res = await fetch('/admin/do-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ email: emailInput.value.trim(), password: passInput.value })
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    showToast('success', 'Access granted', 'Redirecting to the admin workspace…');
+                    setTimeout(() => { window.location.href = '/admin/workspace'; }, 900);
+                } else if (res.status === 403) {
+                    showToast('error', 'Not authorized', data.message || 'This account is not authorized for administrator access.');
+                } else if (res.status === 400) {
+                    showToast('error', 'Missing information', data.message || 'Email and password are required.');
+                } else {
+                    showToast('error', 'Sign in failed', data.message || 'Invalid email or password.');
+                }
+            } catch (err) {
+                showToast('error', 'Network error', 'Unable to connect. Please check your connection.');
+            } finally {
+                submitting = false;
+                btn.disabled = false;
+                btn.innerHTML = orig;
+            }
+        });
+    </script>
+</body>
+
+</html>
