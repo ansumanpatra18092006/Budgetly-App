@@ -289,6 +289,99 @@ def list_loan_applications():
 
 
 # ---------------------------------------------------------------------
+# BORROWER LOAN DETAILS (Phase Next, Part 2)
+#
+# Did not previously exist on the backend -- the Flutter Loan Details
+# screen needs a single-application read that returns more than the
+# list endpoint's summary projection (full applicant answers + a
+# minimal decision block), so this route was added here rather than
+# invented client-side. It follows the exact same ownership pattern as
+# list_loan_applications() / withdraw_loan_application() below and
+# reads no columns/tables beyond what those two already read.
+# ---------------------------------------------------------------------
+@loan_application_bp.route("/api/loan-applications/<int:application_id>", methods=["GET"])
+@login_required
+@consumer_required
+def get_loan_application(application_id):
+    """
+    Returns full detail for one loan application belonging to the
+    authenticated borrower.
+
+    Ownership boundary matches withdraw_loan_application(): `id = %s
+    AND borrower_id = session["user_id"]`. An application that doesn't
+    exist and one owned by another borrower are both reported as 404,
+    so this endpoint never confirms or denies another borrower's
+    application ids.
+
+    Borrower-safe by construction, not by filtering: this route only
+    ever selects loan_applications.{id, status, created_at, updated_at,
+    application_data} and users.name. There is no SHAP/explanation/
+    scenario-analysis/underwriting-notes column in this query (or in
+    this table at all), so none of that can leak here.
+
+    `applicant` is the borrower's own submitted application_data
+    verbatim -- safe to return in full since the borrower already
+    knows every value they entered.
+
+    `decision` is intentionally minimal: only status + decided_at
+    (decided_at = updated_at, which only changes once the application
+    leaves PENDING). There is no separate decision-message /
+    lender-comment column in this schema yet, so `message` is always
+    null rather than invented -- wire it up here if that column is
+    added later.
+    """
+    borrower_id = session.get("user_id")
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """
+            SELECT la.id, la.status, la.created_at, la.updated_at, la.application_data,
+                   u.name AS lender_name
+            FROM loan_applications la
+            JOIN users u ON u.id = la.lender_id
+            WHERE la.id = %s AND la.borrower_id = %s
+            """,
+            (application_id, borrower_id),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        abort(404)
+
+    data = row["application_data"]
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except (TypeError, ValueError):
+            data = {}
+    elif not isinstance(data, dict):
+        data = {}
+
+    application = {
+        "application_id": row["id"],
+        "lender_name": row["lender_name"],
+        "purpose": data.get("purpose"),
+        "loan_amount": data.get("credit_amount"),
+        "tenure_months": data.get("duration_months"),
+        "submitted_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "status": row["status"],
+        "applicant": data,
+        "decision": None,
+    }
+
+    if row["status"] in ("APPROVED", "REJECTED"):
+        application["decision"] = {
+            "status": row["status"],
+            "decided_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            "message": None,
+        }
+
+    return jsonify({"status": "success", "application": application})
+
+
+# ---------------------------------------------------------------------
 # BORROWER WITHDRAWAL (Phase 5)
 #
 # The only new transition this endpoint allows is PENDING -> WITHDRAWN.
