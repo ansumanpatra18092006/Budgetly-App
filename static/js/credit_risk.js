@@ -1031,7 +1031,7 @@ async function checkAndLoadAffordability() {
     body.innerHTML = `
         <div class="ca-loading" style="padding: var(--spacing-lg);">
             <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-            <p>Calculating affordability based on Budgetly history...</p>
+            <p>Calculating affordability based on FinTrust history...</p>
         </div>
     `;
 

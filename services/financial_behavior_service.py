@@ -4,7 +4,7 @@
 Deterministic Financial Behavior Profile.
 
 This module assesses an applicant's actual financial history recorded
-in the Budgetly database to generate a transparent behavioral profile. 
+in the FinTrust database to generate a transparent behavioral profile. 
 It does not use machine learning and does not calculate a "credit score."
 
 METHODOLOGY:

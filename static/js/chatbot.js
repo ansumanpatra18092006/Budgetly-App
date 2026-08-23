@@ -150,7 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const sender = document.createElement("span");
         sender.className = "chat-msg-sender";
-        sender.textContent = role === "you" ? "You" : "Budgetly AI";
+        sender.textContent = role === "you" ? "You" : "FinTrust AI";
 
         const bubble = document.createElement("div");
         bubble.className = "chat-msg-bubble";

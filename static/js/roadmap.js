@@ -2,11 +2,11 @@
 
 /* ================================================================
    ROADMAP — AI-powered goal roadmap generator
-   Integrates with existing goals system in Budgetly
+   Integrates with existing goals system in FinTrust
 ================================================================ */
 
-let _roadmapGoals   = [];
-let _activeRoadmap  = null;
+let _roadmapGoals = [];
+let _activeRoadmap = null;
 
 /* ── Entry point called from navigation ──────────────────────── */
 async function loadRoadmap() {
@@ -74,9 +74,9 @@ async function _fetchGoalsForRoadmap() {
         const res = await authFetch('/get-goals-detailed');
         if (!res || !res.ok) throw new Error('fetch failed');
 
-        const json        = await res.json();
+        const json = await res.json();
         // Backend returns plain JSON — no wrapper object
-        _roadmapGoals     = (json.goals ?? []).filter(g => g.status !== 'completed');
+        _roadmapGoals = (json.goals ?? []).filter(g => g.status !== 'completed');
 
         _renderGoalSelector(_roadmapGoals);
     } catch (e) {
@@ -103,9 +103,9 @@ function _renderGoalSelector(goals) {
     }
 
     const categoryIcons = {
-        Savings:'fa-piggy-bank', Investment:'fa-chart-line', Emergency:'fa-shield-halved',
-        Vacation:'fa-plane',     Education:'fa-graduation-cap', Home:'fa-house',
-        Vehicle:'fa-car',        Retirement:'fa-umbrella-beach',
+        Savings: 'fa-piggy-bank', Investment: 'fa-chart-line', Emergency: 'fa-shield-halved',
+        Vacation: 'fa-plane', Education: 'fa-graduation-cap', Home: 'fa-house',
+        Vehicle: 'fa-car', Retirement: 'fa-umbrella-beach',
     };
 
     selector.innerHTML = `
@@ -114,10 +114,10 @@ function _renderGoalSelector(goals) {
         </div>
         <div class="roadmap-goal-pills">
             ${goals.map(g => {
-                const icon        = categoryIcons[g.category] ?? 'fa-bullseye';
-                const pct         = g.progress_percent ?? 0;
-                const statusClass = g.status === 'at_risk' ? 'pill-risk' : g.status === 'on_track' ? 'pill-on-track' : '';
-                return `
+        const icon = categoryIcons[g.category] ?? 'fa-bullseye';
+        const pct = g.progress_percent ?? 0;
+        const statusClass = g.status === 'at_risk' ? 'pill-risk' : g.status === 'on_track' ? 'pill-on-track' : '';
+        return `
                 <button class="roadmap-goal-pill ${statusClass}"
                         id="pill-${g.id}"
                         onclick="generateRoadmap(${g.id})"
@@ -125,11 +125,11 @@ function _renderGoalSelector(goals) {
                     <span class="pill-icon"><i class="fa-solid ${icon}"></i></span>
                     <span class="pill-info">
                         <span class="pill-name">${escapeHtml(g.name)}</span>
-                        <span class="pill-meta">${pct.toFixed(0)}% · ₹${Number(g.target_amount || 0).toLocaleString('en-IN',{maximumFractionDigits:0})}</span>
+                        <span class="pill-meta">${pct.toFixed(0)}% · ₹${Number(g.target_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
                     </span>
                     <span class="pill-arrow"><i class="fa-solid fa-arrow-right"></i></span>
                 </button>`;
-            }).join('')}
+    }).join('')}
         </div>`;
 }
 
@@ -184,7 +184,7 @@ async function generateRoadmap(goalId) {
 
         if (!res || !res.ok) {
             let msg = 'Failed to generate roadmap';
-            try { const d = await res.json(); msg = d.error || msg; } catch (_) {}
+            try { const d = await res.json(); msg = d.error || msg; } catch (_) { }
             throw new Error(msg);
         }
 
@@ -213,17 +213,17 @@ function _renderRoadmapViewport(goal, roadmap) {
     if (!viewport) return;
 
     const difficultyMeta = {
-        easy:        { color: 'var(--success)', icon: 'fa-circle-check', label: 'Easy' },
-        moderate:    { color: 'var(--warning)', icon: 'fa-chart-line',   label: 'Moderate' },
-        challenging: { color: 'var(--danger)',  icon: 'fa-fire',         label: 'Challenging' },
+        easy: { color: 'var(--success)', icon: 'fa-circle-check', label: 'Easy' },
+        moderate: { color: 'var(--warning)', icon: 'fa-chart-line', label: 'Moderate' },
+        challenging: { color: 'var(--danger)', icon: 'fa-fire', label: 'Challenging' },
     };
     const stratMeta = {
-        conservative: { color: '#64748b', icon: 'fa-shield',        label: 'Conservative' },
-        balanced:     { color: '#2563eb', icon: 'fa-scale-balanced', label: 'Balanced' },
-        aggressive:   { color: '#dc2626', icon: 'fa-rocket',         label: 'Aggressive' },
+        conservative: { color: '#64748b', icon: 'fa-shield', label: 'Conservative' },
+        balanced: { color: '#2563eb', icon: 'fa-scale-balanced', label: 'Balanced' },
+        aggressive: { color: '#dc2626', icon: 'fa-rocket', label: 'Aggressive' },
     };
-    const diff  = difficultyMeta[roadmap.difficulty]  ?? difficultyMeta.moderate;
-    const strat = stratMeta[roadmap.strategy]          ?? stratMeta.balanced;
+    const diff = difficultyMeta[roadmap.difficulty] ?? difficultyMeta.moderate;
+    const strat = stratMeta[roadmap.strategy] ?? stratMeta.balanced;
     const phases = roadmap.phases ?? [];
 
     viewport.innerHTML = `
@@ -279,7 +279,7 @@ function _renderRoadmapViewport(goal, roadmap) {
 
 function _renderPhaseCard(phase, index, total) {
     const isLast = index === total - 1;
-    const steps  = phase.steps ?? [];
+    const steps = phase.steps ?? [];
     return `
     <div class="roadmap-phase" style="animation-delay:${index * 0.1}s">
         ${!isLast ? '<div class="roadmap-connector"></div>' : ''}
@@ -319,12 +319,12 @@ function openRoadmapModal() {
 
     const modal = document.getElementById('roadmapModal');
     const title = document.getElementById('roadmapModalTitle');
-    const sub   = document.getElementById('roadmapModalSubtitle');
-    const body  = document.getElementById('roadmapModalBody');
+    const sub = document.getElementById('roadmapModalSubtitle');
+    const body = document.getElementById('roadmapModalBody');
     if (!modal || !body) return;
 
     title.textContent = goal.name + ' — Full Roadmap';
-    sub.textContent   = `${roadmap.phases?.length ?? 0} phases · ${roadmap.strategy} strategy`;
+    sub.textContent = `${roadmap.phases?.length ?? 0} phases · ${roadmap.strategy} strategy`;
 
     const phases = roadmap.phases ?? [];
     body.innerHTML = `
@@ -366,7 +366,7 @@ function closeRoadmapModal() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('roadmapModal')?.addEventListener('click', function(e) {
+    document.getElementById('roadmapModal')?.addEventListener('click', function (e) {
         if (e.target === this) closeRoadmapModal();
     });
 });

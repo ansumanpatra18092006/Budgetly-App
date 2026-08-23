@@ -4,7 +4,7 @@
 Affordability Assessment Service.
 
 Evaluates whether an applicant can reasonably afford a proposed loan 
-based on their actual Budgetly financial behavior.
+based on their actual FinTrust financial behavior.
 
 This is a deterministic cash-flow calculation, NOT a credit score.
 """
@@ -14,7 +14,7 @@ from services.financial_behavior_service import get_financial_behavior_profile
 def calculate_affordability(user_id, applicant):
     """
     Combines the applicant's proposed loan parameters with their 
-    actual Budgetly financial capacity to determine affordability.
+    actual FinTrust financial capacity to determine affordability.
     """
     # 1. Fetch behavioral profile
     behavior = get_financial_behavior_profile(user_id)

@@ -1,7 +1,7 @@
 # services/credit_risk_service.py
 
 """
-Budgetly-side service wrapper for the verified AI Credit Risk System.
+FinTrust-side service wrapper for the verified AI Credit Risk System.
 
 This module isolates the web layer from ML internals. It delegates
 processing to the canonical ml.credit_risk modules without duplicating

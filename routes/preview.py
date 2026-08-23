@@ -2,8 +2,8 @@
 routes/preview.py
 Transaction preview and UPI confirm endpoints.
 
-Budgetly does not hold user money. Payment is always external
-(the user's own UPI app); Budgetly only records the outcome and
+FinTrust does not hold user money. Payment is always external
+(the user's own UPI app); FinTrust only records the outcome and
 its financial impact.
 """
 

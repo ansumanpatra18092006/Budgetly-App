@@ -1,5 +1,5 @@
 """
-chatbot.py — Budgetly AI Financial Assistant (Streaming Edition)
+chatbot.py — FinTrust AI Financial Assistant (Streaming Edition)
 =================================================================
 Cloud LLM chatbot powered by Google Gemini.
 
@@ -204,7 +204,7 @@ def _fast_path(intent: str, a: dict) -> str | None:
     # NEW: Greeting fast-path without financial analysis
     if intent == "greeting":
         responses = [
-            "Hey! 👋 I'm Budgetly AI. How can I help today?",
+            "Hey! 👋 I'm FinTrust AI. How can I help today?",
             "Hello! Need help with budgeting, spending, savings, goals, or a financial decision?",
             "Hi there! What would you like to know?"
         ]
@@ -368,7 +368,7 @@ def _build_prompt(a: dict, intent: str, message: str) -> str:
     }.get(intent, "Answer naturally. Use financial data only if the question is financial.")
 
     return f"""
-You are Budgetly AI, a friendly, smart, and conversational personal finance coach.
+You are FinTrust AI, a friendly, smart, and conversational personal finance coach.
 
 Your job is to give short, clear, and useful financial advice or casually chat, depending on the user's prompt.
 Prioritize natural conversation for casual messages, and financial reasoning for financial queries.

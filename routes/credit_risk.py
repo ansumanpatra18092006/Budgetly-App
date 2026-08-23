@@ -155,7 +155,7 @@ def _resolve_borrower_id(candidate_id):
     Data-ownership boundary for lender-facing borrower data.
 
     The lender-side workspace must NEVER read the authenticated lender's own
-    Budgetly data as a stand-in for the borrower being assessed. Previously
+    FinTrust data as a stand-in for the borrower being assessed. Previously
     these endpoints called session.get("user_id"), which is the logged-in
     LENDER's id, not the borrower's — that was incorrect and has been removed.
 
@@ -206,7 +206,7 @@ def financial_behavior():
 def affordability():
     """
     Evaluates loan affordability for an applicant purely based on the
-    BORROWER's Budgetly cash-flow — never the signed-in lender's own data.
+    BORROWER's FinTrust cash-flow — never the signed-in lender's own data.
     """
     payload = request.get_json(silent=True)
     if payload is None or not isinstance(payload, dict):

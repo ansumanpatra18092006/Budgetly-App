@@ -528,7 +528,7 @@ def lender_activate():
 def send_reset_email(to_email, reset_link):
     _send_transactional_email(
         to_email=to_email,
-        subject="Reset your Budgetly password",
+        subject="Reset your FinTrust password",
         heading="Password Reset Request",
         body_html="<p>You requested to reset your password.</p>",
         cta_text="Reset Password",
@@ -554,7 +554,7 @@ def send_invite_email(to_email, invite_link, temp_password=None):
     labeled as a development/demo provisioning mechanism, never done
     when real email delivery is available.
     """
-    body_html = "<p>An administrator has provisioned an analyst account for you on Budgetly.</p>"
+    body_html = "<p>An administrator has provisioned an analyst account for you on FinTrust.</p>"
     if temp_password:
         body_html += (
             f"<p>Temporary password: <code>{temp_password}</code></p>"
@@ -563,7 +563,7 @@ def send_invite_email(to_email, invite_link, temp_password=None):
         )
     _send_transactional_email(
         to_email=to_email,
-        subject="You've been granted analyst access to Budgetly",
+        subject="You've been granted analyst access to FinTrust",
         heading="Analyst Access Granted",
         body_html=body_html,
         cta_text="Set Your Password",
@@ -591,7 +591,7 @@ def send_lender_invitation_email(to_email, activation_link, ttl_display):
     fallback or a failed send, and respond to the admin accordingly.
     """
     body_html = (
-        "<p>You have been granted <strong>analyst access</strong> to Budgetly.</p>"
+        "<p>You have been granted <strong>analyst access</strong> to FinTrust.</p>"
         "<p>This workspace is dedicated to <strong>Credit Risk Intelligence</strong> "
         "and is intended for authorized lenders and credit analysts only.</p>"
         f"<p>This invitation link expires in {ttl_display}.</p>"
@@ -600,7 +600,7 @@ def send_lender_invitation_email(to_email, activation_link, ttl_display):
     )
     return _send_transactional_email(
         to_email=to_email,
-        subject="Budgetly Analyst Workspace Invitation",
+        subject="FinTrust Analyst Workspace Invitation",
         heading="Analyst Workspace Invitation",
         body_html=body_html,
         cta_text="Activate Analyst Account",
@@ -630,7 +630,7 @@ def _send_transactional_email(to_email, subject, heading, body_html, cta_text, c
         print(cta_link)
         print("=============================\n")
         return {"success": False, "mode": "dev_fallback"}
-    SENDER_NAME = "Budgetly"
+    SENDER_NAME = "FinTrust"
 
     configuration = sib_api_v3_sdk.Configuration()
     configuration.api_key['api-key'] = BREVO_API_KEY

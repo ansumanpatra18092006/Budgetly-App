@@ -569,7 +569,7 @@ def borrower_evidence_lender_application(application_id):
 def repayment_capacity_lender_application(application_id):
     """
     Returns the affordability assessment for this application against
-    the linked borrower's actual Budgetly financial capacity.
+    the linked borrower's actual FinTrust financial capacity.
 
     Ownership: same `lender_id = session["user_id"]` filter as every
     other lender endpoint here.

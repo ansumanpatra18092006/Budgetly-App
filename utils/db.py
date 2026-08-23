@@ -1,6 +1,6 @@
 """
 utils/db.py
-PostgreSQL helper for Budgetly (Supabase).
+PostgreSQL helper for FinTrust (Supabase).
 
 MIGRATION NOTES (SQLite -> PostgreSQL):
 - Parameter placeholders: '?' becomes '%s'

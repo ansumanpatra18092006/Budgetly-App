@@ -1,6 +1,6 @@
 """
 routes/goals.py — Goals Blueprint
-Budgetly finance tracker.
+FinTrust finance tracker.
 
 Endpoints:
   GET  /get-goals

@@ -11,7 +11,7 @@ model = genai.GenerativeModel(
 )
 
 response = model.generate_content(
-    "What is Budgetly?"
+    "What is FinTrust?"
 )
 
 print(response.text)

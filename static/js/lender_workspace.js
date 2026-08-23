@@ -1550,7 +1550,7 @@ function renderLwAffordabilityFull(data) {
 
     container.innerHTML = `
         <div class="lw-panel-title" style="margin-bottom:10px;"><i class="fa-solid fa-wallet"></i> Current Cash Flow
-            <span class="lw-context-muted" style="font-weight:600; text-transform:none; letter-spacing:0;">(real ₹, Budgetly history)</span>
+            <span class="lw-context-muted" style="font-weight:600; text-transform:none; letter-spacing:0;">(real ₹, FinTrust history)</span>
         </div>
         <div class="lw-stat-row">
             <div class="lw-stat-card"><div class="lw-stat-label">Income</div>${lwVal(cap.monthly_income, { prefix: '₹' })}</div>
@@ -1575,7 +1575,7 @@ function renderLwAffordabilityFull(data) {
         <div class="lw-panel-note" style="margin-top:16px; opacity:0.8;">
             <i class="fa-solid fa-circle-info"></i>
             The requested loan amount and tenure are in the risk model's native units, while income,
-            surplus, and recurring burden above are real ₹ figures from the borrower's Budgetly history. The
+            surplus, and recurring burden above are real ₹ figures from the borrower's FinTrust history. The
             payment-to-income/surplus ratios and "Estimated Installment" mix these two unit systems and
             should be treated as indicative only, not a true ₹ affordability figure.
         </div>

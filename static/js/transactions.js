@@ -4,7 +4,7 @@
    TRANSACTIONS.JS  — Full rewrite
    Aligned to: index.html · payment_modals.html · preview.py
 
-   Budgetly does not hold user money. Every expense is settled
+   FinTrust does not hold user money. Every expense is settled
    externally (the user's own UPI app); this file only previews
    the financial impact and then records the outcome.
 
@@ -347,7 +347,7 @@ function proceedWithUPI() {
 
     /* Open UPI app via deep-link */
     const upiLink =
-        `upi://pay?pa=budgetly@upi&pn=Budgetly&am=${_pendingTx.amount}&cu=INR`;
+        `upi://pay?pa=FinTrust@upi&pn=FinTrust&am=${_pendingTx.amount}&cu=INR`;
     window.location.href = upiLink;
 
     /* Populate and open the UPI confirm modal */

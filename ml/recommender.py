@@ -616,7 +616,7 @@ def _rec_lifecycle_and_payment(recurring_items):
             out.append(_make_rec(
                 "recurring", "medium", "payment_overdue",
                 f"Payment may be overdue: {name}",
-                f"Budgetly expected a payment for '{name}' but it has not been seen "
+                f"FinTrust expected a payment for '{name}' but it has not been seen "
                 f"({abs(days_until) if days_until is not None else 'several'} days past the expected date).",
                 {"lifecycle_status": lifecycle, "payment_status": payment, "days_until": days_until},
                 f"Check whether '{name}' was paid or billed through a different account.",
@@ -632,7 +632,7 @@ def _rec_lifecycle_and_payment(recurring_items):
             out.append(_make_rec(
                 "recurring", "low", "lifecycle_review",
                 f"Review recurring status: {name}",
-                "Budgetly has not seen this recurring payment for longer than expected. "
+                "FinTrust has not seen this recurring payment for longer than expected. "
                 f"Review whether '{name}' is still active.",
                 {"lifecycle_status": lifecycle, "payment_status": payment, "last_date": item.get("last_date")},
                 f"Confirm whether '{name}' is still in use; cancel it if not.",
@@ -655,7 +655,7 @@ def _rec_possible_subscriptions(recurring_items):
         out.append(_make_rec(
             "subscription", "low", "possible_subscription",
             "Possible recurring subscription detected",
-            f"Budgetly detected a possible recurring subscription: {name}. Verify whether you recognize it.",
+            f"FinTrust detected a possible recurring subscription: {name}. Verify whether you recognize it.",
             {"classification": "possible_subscription", "classification_confidence": conf},
             f"Check your statements to confirm whether '{name}' is a subscription you recognize.",
             None,
@@ -672,7 +672,7 @@ def _rec_subscription_burden(subscription_summary, income):
         return []
     ratio = confirmed_monthly / income * 100
 
-    # Policy heuristic (Budgetly-specific, not a universal financial rule):
+    # Policy heuristic (FinTrust-specific, not a universal financial rule):
     #   <10%  -> no alert
     #   10-20% -> medium
     #   >20%  -> high
@@ -711,7 +711,7 @@ def _rec_recurring_bill_burden(recurring_items, recurring_bill_burden, income):
         return []
 
     ratio = burden / income * 100
-    # Section 8 policy thresholds (Budgetly product heuristics):
+    # Section 8 policy thresholds (FinTrust product heuristics):
     #   <=30% -> no alert
     #   >30%  -> medium
     #   >50%  -> high
