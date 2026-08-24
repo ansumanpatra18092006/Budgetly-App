@@ -47,6 +47,11 @@ def _fetch_full_metrics(conn, user_id):
     """
     Unified metrics layer — single source of truth for all intelligence
     modules: insights, risk, roadmap, transaction preview, recommendations.
+
+    Added in this version:
+      - goal_pressure  : urgency index (0–100). High = goals falling behind.
+      - goal_details   : per-goal breakdown with monthly_required, months_left.
+      - combined_risk  : blended risk from expense ratio + goal pressure.
     """
     cur_start, prev_start, prev_end = _get_month_bounds()
     today = datetime.today()
@@ -105,6 +110,7 @@ def _fetch_full_metrics(conn, user_id):
     # ═══════════════════════════════════════════════════════════
     # COMPUTE BASE METRICS
     # ═══════════════════════════════════════════════════════════
+    # Safely convert PostgreSQL Decimals to float before calculations
     income    = float(cur["income"] or 0)
     expense   = float(cur["expense"] or 0)
     surplus   = income - expense
@@ -133,7 +139,13 @@ def _fetch_full_metrics(conn, user_id):
         avg_monthly_surplus = max(0.0, surplus)
 
     # ═══════════════════════════════════════════════════════════
-    # GOAL INTELLIGENCE & PRESSURE CALCULATION
+    # GOAL PRESSURE CALCULATION
+    # Formula:
+    #   goal_pressure = ((total_target - total_saved) / total_target) * 100
+    #
+    # Elevated further when:
+    #   - A goal has a target_date that is approaching (<3 months)
+    #   - Monthly surplus is insufficient to cover required savings
     # ═══════════════════════════════════════════════════════════
     total_target = 0.0
     total_saved  = 0.0
@@ -150,42 +162,28 @@ def _fetch_full_metrics(conn, user_id):
         total_target += target
         total_saved  += saved
 
-        monthly_required = 0.0
-        months_left_goal = 0
+        # Per-goal monthly requirement
+        monthly_required = None
+        months_left_goal = None
         goal_risk        = "low"
-        target_date_val  = row.get("target_date")
-        
-        target_date_str = None
-        if isinstance(target_date_val, (datetime, date)):
-            target_date_str = target_date_val.strftime("%Y-%m-%d")
-        elif isinstance(target_date_val, str) and target_date_val.strip():
-            target_date_str = target_date_val[:10]
+        target_date_str  = row["target_date"] if "target_date" in row.keys() else None
 
-        if remaining > 0:
-            td = None
-            if isinstance(target_date_val, (datetime, date)):
-                td = target_date_val
-            elif target_date_str:
-                try:
-                    td = datetime.strptime(target_date_str, "%Y-%m-%d")
-                except (ValueError, TypeError):
-                    print(f"[FinTrust Warning] Unparseable target_date '{target_date_val}' for goal {g_id}")
-            
-            if td:
+        if target_date_str:
+            try:
+                td = datetime.strptime(target_date_str, "%Y-%m-%d")
                 ml = max(1, (td.year - today.year) * 12 + (td.month - today.month))
                 months_left_goal = ml
-                monthly_required = round(remaining / ml, 2)
+                monthly_required = round(remaining / ml, 2) if ml > 0 else remaining
 
                 if monthly_required > avg_monthly_surplus:
                     goal_risk = "high" if monthly_required > avg_monthly_surplus * 1.5 else "medium"
                 elif ml <= 2:
                     goal_risk = "medium"
-            elif avg_monthly_surplus > 0:
-                months_left_goal = round(remaining / avg_monthly_surplus, 1)
-                monthly_required = round(avg_monthly_surplus, 2)
-            else:
-                months_left_goal = None
-                monthly_required = round(remaining, 2) # Assume 1 month if no surplus/date
+            except (ValueError, TypeError):
+                pass
+        elif avg_monthly_surplus > 0 and remaining > 0:
+            months_left_goal = round(remaining / avg_monthly_surplus, 1)
+            monthly_required = round(avg_monthly_surplus, 2)
 
         goal_details.append({
             "id":               g_id,
@@ -194,32 +192,36 @@ def _fetch_full_metrics(conn, user_id):
             "saved_amount":     saved,
             "remaining":        round(remaining, 2),
             "progress_percent": progress_pct,
-            "monthly_required": monthly_required if remaining > 0 else None,
-            "months_left":      months_left_goal if remaining > 0 else None,
+            "monthly_required": monthly_required,
+            "months_left":      months_left_goal,
             "target_date":      target_date_str,
             "goal_risk":        goal_risk,
             "category":         row["category"],
         })
 
-    # Formula: Capacity Ratio (Requirement vs Surplus)
+    # Base goal pressure
+    if total_target > 0:
+        base_pressure = ((total_target - total_saved) / total_target) * 100
+    else:
+        base_pressure = 0.0
+
+    # Urgency bonus — amplify if surplus can't cover goals
     total_monthly_required = sum(
         float(g["monthly_required"] or 0) for g in goal_details if g["monthly_required"]
     )
     
-    base_pressure = 0.0
-    if avg_monthly_surplus > 0:
-        base_pressure = (total_monthly_required / avg_monthly_surplus) * 40.0
-    elif total_monthly_required > 0:
-        base_pressure = 100.0
+    if avg_monthly_surplus > 0 and total_monthly_required > 0:
+        coverage_ratio = avg_monthly_surplus / total_monthly_required
+        if coverage_ratio < 0.5:
+            base_pressure = min(100.0, base_pressure * 1.3)
+        elif coverage_ratio < 1.0:
+            base_pressure = min(100.0, base_pressure * 1.1)
 
-    high_risk_count = sum(1 for g in goal_details if g["goal_risk"] == "high")
-    medium_risk_count = sum(1 for g in goal_details if g["goal_risk"] == "medium")
-    
-    penalty = (high_risk_count * 10) + (medium_risk_count * 5)
-    goal_pressure = round(min(100.0, base_pressure + penalty), 1)
+    goal_pressure = round(min(base_pressure, 100.0), 1)
 
     # ═══════════════════════════════════════════════════════════
     # COMBINED RISK SCORE
+    # Blends: expense ratio (50%) + goal pressure (30%) + budget (20%)
     # ═══════════════════════════════════════════════════════════
     expense_ratio = (expense / income * 100) if income > 0 else 100.0
     goal_pressure_weight = 0.30
@@ -237,20 +239,25 @@ def _fetch_full_metrics(conn, user_id):
     else:                           combined_risk = "low"
 
     return dict(
+        # ── Core financials ──────────────────────────────────
         income=income, expense=expense, surplus=surplus, budget=budget,
         savings_rate=savings_rate, budget_used_pct=budget_used_pct,
         expense_change=expense_change, p_income=p_income, p_expense=p_expense,
         days_left=days_left, days_passed=days_passed, daily_burn=daily_burn,
         today_day=today.day,
+        # ── Category intelligence ────────────────────────────
         top_cat_name=top_cat_name, top_cat_pct=top_cat_pct,
+        # ── Goal intelligence (NEW) ──────────────────────────
         goal_pressure=goal_pressure,
         goal_details=goal_details,
         total_target=total_target,
         total_saved=total_saved,
         avg_monthly_surplus=avg_monthly_surplus,
         total_monthly_required=total_monthly_required,
+        # ── Combined risk (NEW) ──────────────────────────────
         combined_risk=combined_risk,
         combined_risk_score=round(combined_risk_score, 1),
+        # ── Legacy compat ────────────────────────────────────
         goals=[{
             "name": g["name"],
             "target_amount": g["target_amount"],
@@ -258,9 +265,25 @@ def _fetch_full_metrics(conn, user_id):
         } for g in goal_details],
     )
 
-# [KEEP ALL REMAINING UNMODIFIED ENDPOINTS: _fetch_monthly_expense_history, _fetch_category_history, _reword_no_income_risk_factors, _fetch_current_month_category_totals, _fetch_anomaly_input, unified_insights, ai_insights, risk_score, insight_badge, smart_nudge, goal_intelligence, behavioral_patterns, recurring_suggestions_v2, mark_recurring_suggestion]
+
+# ============================================================
+# PART E — UNIFIED FINANCIAL INTELLIGENCE API
+# ============================================================
+#
+# The single authoritative endpoint for the new Insights dashboard. It
+# orchestrates the recurring engine, forecast model, risk/health model,
+# anomaly engine, goal data, and recommender - each of which is called
+# EXACTLY ONCE - and returns one structured payload. routes/insights.py
+# and static/js/insights.js must NOT duplicate any of this logic; they
+# either delegate to it or remain untouched legacy/compat surfaces.
 
 def _fetch_monthly_expense_history(conn, user_id, months=12):
+    """
+    Total expense per calendar month, oldest -> newest, plus the aligned
+    calendar month number for each entry (for optional seasonal
+    forecasting). Used only by the unified endpoint's forecast section -
+    NOT a general-purpose helper duplicated elsewhere.
+    """
     rows = conn.execute("""
         SELECT to_char(date,'YYYY-MM') AS month,
                EXTRACT(MONTH FROM date)::int AS month_num,
@@ -277,6 +300,8 @@ def _fetch_monthly_expense_history(conn, user_id, months=12):
 
 
 def _fetch_category_history(conn, user_id, months=6):
+    """category -> [monthly totals oldest -> newest], for the last N
+    calendar months that have any expense data. Single query."""
     rows = conn.execute("""
         SELECT to_char(date,'YYYY-MM') AS month,
                COALESCE(category,'Misc') AS category,
@@ -300,6 +325,10 @@ def _fetch_category_history(conn, user_id, months=6):
 
 
 _NO_INCOME_DEFICIT_PREFIX = "Projected expenses exceed income by"
+# Every phrasing risk_model.py (or an earlier pass of this function) can
+# produce for the same underlying "no income recorded" situation. All of
+# these are semantically the same risk factor and must collapse to one
+# deterministic message rather than being shown side by side.
 _NO_INCOME_SIGNAL_PREFIXES = (
     _NO_INCOME_DEFICIT_PREFIX,
     "Income data is unavailable",
@@ -308,6 +337,20 @@ _NO_INCOME_SIGNAL_PREFIXES = (
 
 
 def _reword_no_income_risk_factors(main_risk_factors, income, cash_flow):
+    """Display-layer fix only (risk_model.py is not modified this pass).
+
+    calculate_financial_health() phrases a projected cash-flow deficit as
+    "Projected expenses exceed income by ₹X" - accurate when there IS
+    income to compare against, but misleading when income == 0, since
+    there's no recorded income to "exceed". Separately, it can also emit
+    a dedicated "Income data is unavailable..." risk factor. Left alone,
+    a no-income user could see BOTH factors on the dashboard, saying the
+    same thing twice ("Income data is unavailable" and "No income is
+    recorded"). This collapses every no-income-signal factor into
+    exactly ONE deterministic message, placed at the position of the
+    first such factor; every unrelated risk factor passes through
+    unchanged, in its original order.
+    """
     if income != 0 or not main_risk_factors:
         return main_risk_factors
 
@@ -325,12 +368,17 @@ def _reword_no_income_risk_factors(main_risk_factors, income, cash_flow):
             if not emitted_canonical:
                 reworded.append(canonical_message)
                 emitted_canonical = True
-            continue
+            continue  # drop the duplicate no-income-signal factor
         reworded.append(factor)
     return reworded
 
 
 def _fetch_current_month_category_totals(conn, user_id, cur_start):
+    """category -> current-calendar-month expense total, for categories
+    that actually have at least one transaction this month. Used only to
+    tell "no current-month activity" apart from "spending decreased" when
+    annotating category_forecasts below — a category simply missing from
+    this dict this month is NOT evidence of a downward trend."""
     rows = conn.execute("""
         SELECT COALESCE(category,'Misc') AS category,
                COALESCE(SUM(amount),0) AS total
@@ -370,12 +418,29 @@ def unified_insights():
     finally:
         _safe_close(conn)
 
+    # ── ONE recurring analysis call — everything recurring-related below
+    # is DERIVED from this single result (Part Q: no repeated recurrence
+    # calculation, no N+1 queries). ──────────────────────────────────
     recurring_data = analyze_recurring_transactions(user_id)
     recurring_items = get_recurring_transactions(user_id, recurring_data=recurring_data)
     subscription_summary = get_subscription_summary(user_id, recurring_data=recurring_data)
     recurring_income = get_recurring_income(user_id, recurring_data=recurring_data)
     upcoming = get_upcoming_recurring(user_id, recurring_data=recurring_data, days_ahead=30)
 
+    # ── Overdue / upcoming payment sections (Part 1, 2, 5 fix) ──────────
+    # These sections must only ever contain actual EXPENSE commitments
+    # that are still believed to be live:
+    #   - classification: subscription / recurring_bill only — never
+    #     recurring_income (that belongs in its own recurring_income
+    #     section, see below) and never unknown_recurring (too
+    #     unconfirmed to present as a commitment needing action).
+    #   - lifecycle_status: active or possibly_missed only — inactive
+    #     and possibly_inactive commitments are not live financial
+    #     obligations and must never be shown as something due.
+    # Lifecycle status governs whether the commitment is still live;
+    # payment_status governs timing (overdue vs due_soon/upcoming). Both
+    # gates are applied using the fields recurring_service.py already
+    # supplies — no new recurrence/classification logic is introduced.
     _LIVE_COMMITMENT_CLASSIFICATIONS = ("subscription", "recurring_bill")
     _LIVE_COMMITMENT_LIFECYCLES = ("active", "possibly_missed")
 
@@ -390,11 +455,20 @@ def unified_insights():
         if _is_live_expense_commitment(i) and i["payment_status"] == "overdue"
     ]
 
+    # Defensive filter on `upcoming` too: get_upcoming_recurring() is the
+    # authoritative source, but the unified dashboard's "Upcoming
+    # Recurring Payments" section must never surface recurring_income or
+    # inactive/possibly_inactive items even if a future change to that
+    # helper's output ever included them.
     upcoming = [
         i for i in upcoming
         if _is_live_expense_commitment(i) and i.get("payment_status") in ("due_soon", "upcoming")
     ]
 
+    # Part D: "active financial burden" is defined by lifecycle_status ==
+    # "active", never by payment timing (payment_status). A subscription
+    # that's simply not due yet for 3 more weeks is still an active
+    # commitment and belongs in the burden total.
     active_subscriptions = [s for s in subscription_summary["subscriptions"] if s["lifecycle_status"] == "active"]
     active_bills = [b for b in recurring_data["recurring_bills"] if b["lifecycle_status"] == "active"]
 
@@ -404,11 +478,22 @@ def unified_insights():
     monthly_burden = round(confirmed_monthly_cost + recurring_bill_monthly_burden, 2)
     annual_burden = round(monthly_burden * 12, 2)
 
+    # Rule 2/3: must be sourced from the SAME active-lifecycle set that
+    # produces "Confirmed subscriptions" above (active_subscriptions),
+    # never from the broader subscription_summary["subscriptions"]
+    # bucket, or a subscription the app no longer considers active could
+    # still surface a price-increase alert next to "Confirmed
+    # subscriptions: ₹0/mo". get_subscription_summary() now also
+    # active-filters its own "subscriptions" bucket, so this is
+    # defense-in-depth rather than the only guard.
     price_changes = [
         s for s in active_subscriptions
         if s.get("price_change") and s["price_change"].get("detected")
     ]
 
+    # Recurring commitments not yet incurred THIS calendar month (used by
+    # the health model so a same-month upcoming bill isn't silently
+    # ignored, without double-counting anything already in current_expense).
     current_month_key = date.today().strftime("%Y-%m")
     remaining_recurring_this_month = round(sum(
         i["monthly_equivalent"] for i in recurring_items
@@ -418,6 +503,11 @@ def unified_insights():
         and i["next_expected_date"][:7] == current_month_key
     ), 2)
 
+    # ── Forecast (Part F) — the finalized comprehensive model, called
+    # once. historical_recurring is passed as a constant monthly load
+    # (we don't have a reliable month-by-month recurring history from the
+    # recurring engine, only its current-state snapshot), which
+    # predict_next_month_comprehensive explicitly supports. ────────────
     today = datetime.today()
     days_in_month = (date(today.year + (today.month == 12), (today.month % 12) + 1, 1) - timedelta(days=1)).day
     forecast = predict_next_month_comprehensive(
@@ -432,10 +522,29 @@ def unified_insights():
         category_history=category_history,
     )
 
+    # ── Financial health / risk (Part G) — the finalized risk model,
+    # called once; NOT the old routes/insights.py probability model. ───
     goals_at_risk_count = sum(1 for g in m["goal_details"] if g["goal_risk"] in ("medium", "high"))
 
+    # Fix (income==0 must not read as 0% savings): m["savings_rate"] is
+    # computed in _fetch_full_metrics as 0.0 when income == 0 (a
+    # display-friendly default for legacy consumers of that dict), not a
+    # real "0% savings rate". calculate_financial_health() already has
+    # correct zero-income handling (savings_rate_input=None + income==0
+    # => "unavailable" / "no_income", never a fabricated 0%) - but only
+    # if we don't pass it an explicit override that looks like real
+    # data. Only pass the explicit rate through when income actually
+    # exists; otherwise let the model derive its own (correct) state.
     savings_rate_arg = m["savings_rate"] if m["income"] > 0 else None
 
+    # Fix (no goals must not mean goal pressure = 0): with no goals
+    # configured, m["goal_pressure"]/m["total_monthly_required"] are 0.0
+    # (again, a legacy-friendly default), not a real "0 pressure"
+    # measurement. Passed as-is, they make calculate_financial_health()
+    # treat goal pressure as explicitly known-and-comfortable and
+    # generate a positive "goals are comfortably supported" factor that
+    # has no basis, since the user has no goals at all. Only pass goal
+    # figures through when at least one goal actually exists.
     has_goals = bool(m["goal_details"])
     goal_pressure_arg = m["goal_pressure"] if has_goals else None
     total_required_monthly_arg = m["total_monthly_required"] if has_goals else None
@@ -460,10 +569,16 @@ def unified_insights():
         days_in_month=days_in_month,
     )
 
+    # Fix (Section 8/9 — no-income wording): rephrase the one risk
+    # factor that would otherwise misleadingly say income was
+    # "exceeded" when no income was recorded at all. risk_model.py
+    # itself is unchanged; this only adjusts the string in the payload
+    # this endpoint returns.
     health["main_risk_factors"] = _reword_no_income_risk_factors(
         health.get("main_risk_factors", []), m["income"], health.get("cash_flow", {})
     )
 
+    # ── Anomalies (existing engine, called once) ────────────────────
     raw_anomalies = detect_category_anomalies(anomaly_input)
     anomalies = [
         {
@@ -471,11 +586,14 @@ def unified_insights():
             "amount": a["amount"], "category": a["category"],
             "expected_amount": a["expected_amount"], "deviation": a["deviation"],
             "severity": a["severity"], "confidence": a["confidence"],
+            # Part P: never call it "fraud".
             "reason": a["reason"] or "Unusual transaction — review to make sure it was expected.",
         }
         for a in raw_anomalies
     ]
 
+    # ── Recommendations (Part H) — pure orchestration consumer, called
+    # once with the structured outputs already computed above. ────────
     recs = get_financial_recommendations(
         user_id=user_id,
         income=m["income"],
@@ -491,6 +609,15 @@ def unified_insights():
         spending_trend_pct=m["expense_change"],
     )
 
+    # Fix (category trend false zeroes): forecast["category_forecasts"]
+    # can label a category "down"/"₹0" purely because the CURRENT
+    # calendar month has no transactions for it yet, which is not the
+    # same thing as spending having decreased. Cross-check each entry
+    # against actual current-month activity (queried above, independent
+    # of the forecast model's own trend math) and relabel any category
+    # with zero current-month spend as "no_data" rather than a trend, for
+    # display purposes only. This does not touch forecast_model.py or
+    # the numbers fed to the recommender above.
     display_category_forecasts = []
     for c in (forecast.get("category_forecasts") or []):
         entry = dict(c)
@@ -500,6 +627,13 @@ def unified_insights():
             entry["note"] = f"{cat} — no spending recorded this month"
         display_category_forecasts.append(entry)
 
+    # Fix (Rule 11 — don't overstate trend reliability): forecast_model.py
+    # is unchanged, and every number derived from `forecast` above
+    # (health, recommendations) already used the raw dict before this
+    # point. This only softens what's SHOWN when the model itself
+    # flagged low confidence, so a shaky 2-3-transaction trend doesn't
+    # read as a confident "up"/"down" call. If confidence isn't "low",
+    # the forecast's own trend is left exactly as supplied.
     display_forecast = dict(forecast)
     if display_forecast.get("confidence") == "low" and display_forecast.get("trend"):
         display_forecast["trend"] = "insufficient_history"
@@ -511,14 +645,18 @@ def unified_insights():
 
     payload = {
         "status": "success",
+
         "financial_health": health,
+
         "forecast": display_forecast,
+
         "recurring": {
             "upcoming": upcoming,
             "overdue": overdue,
             "monthly_burden": monthly_burden,
             "annual_burden": annual_burden,
         },
+
         "subscriptions": {
             "active": active_subscriptions,
             "possible": subscription_summary["possible_subscriptions"],
@@ -527,24 +665,30 @@ def unified_insights():
             "confirmed_annual_cost": confirmed_annual_cost,
             "price_changes": price_changes,
         },
+
         "recurring_income": recurring_income["recurring_income"],
+
         "spending": {
             "trend_pct": m["expense_change"],
             "categories": display_category_forecasts,
             "top_category": {"name": m["top_cat_name"], "percent": m["top_cat_pct"]},
         },
+
         "anomalies": anomalies,
+
         "goals": {
             "details": m["goal_details"],
             "pressure": m["goal_pressure"],
             "goals_at_risk": goals_at_risk_count,
         },
+
         "recommendations": recs.get("recommendations", []),
     }
 
     return jsonify(payload)
 
 
+# ── 1. PROACTIVE AI INSIGHTS (goal-aware) ────────────────────────────
 @ai_insights_bp.route("/ai-insights")
 @login_required
 def ai_insights():
@@ -556,6 +700,7 @@ def ai_insights():
 
     insights = []
 
+    # Budget pressure
     if m["budget"] > 0 and m["budget_used_pct"] >= 85:
         cut = int((m["expense"] - m["budget"]) / max(m["days_left"], 1))
         insights.append({
@@ -569,6 +714,7 @@ def ai_insights():
             "level": "medium", "type": "budget"
         })
 
+    # Savings rate
     if m["savings_rate"] < 5 and m["income"] > 0:
         save = int(m["expense"] * m["top_cat_pct"] / 100 * 0.15)
         insights.append({
@@ -581,12 +727,14 @@ def ai_insights():
             "level": "medium", "type": "trend"
         })
 
+    # Expense spike
     if m["expense_change"] > 30:
         insights.append({
             "message": f"Expenses up {m['expense_change']}% vs last month (₹{int(m['p_expense'])} → ₹{int(m['expense'])}). {m['top_cat_name']} is {m['top_cat_pct']}% of spend.",
             "level": "high", "type": "category"
         })
 
+    # ── GOAL-BASED INSIGHTS (NEW) ────────────────────────────────
     for g in m["goal_details"]:
         if g["target_amount"] <= 0:
             continue
@@ -594,6 +742,7 @@ def ai_insights():
         pct = g["progress_percent"]
         mr  = float(g["monthly_required"] or 0)
 
+        # Goal falling behind
         if g["goal_risk"] == "high":
             insights.append({
                 "message": f"Goal '{g['name']}' needs ₹{int(mr)}/mo but your surplus is only ₹{int(m['avg_monthly_surplus'])}. It may be delayed.",
@@ -612,6 +761,7 @@ def ai_insights():
                 "level": "medium", "type": "goal"
             })
 
+    # ── GOAL PRESSURE INSIGHT (NEW) ──────────────────────────────
     if m["goal_pressure"] > 70 and m["total_monthly_required"] > 0:
         insights.append({
             "message": f"Goal pressure is high ({m['goal_pressure']:.0f}/100). You need ₹{int(m['total_monthly_required'])}/mo for all goals but surplus is ₹{int(m['avg_monthly_surplus'])}.",
@@ -630,6 +780,7 @@ def ai_insights():
     return jsonify({"insights": insights})
 
 
+# ── 2. RISK SCORE (goal-pressure aware) ─────────────────────────────
 @ai_insights_bp.route("/risk-score")
 @login_required
 def risk_score():
@@ -641,21 +792,26 @@ def risk_score():
 
     score = 100
 
+    # Savings rate deductions
     if   m["savings_rate"] < 5:   score -= 30
     elif m["savings_rate"] < 15:  score -= 15
     elif m["savings_rate"] < 25:  score -= 5
 
+    # Budget deductions
     if   m["budget_used_pct"] > 90: score -= 25
     elif m["budget_used_pct"] > 75: score -= 12
     elif m["budget_used_pct"] > 50: score -= 5
 
+    # Expense growth deductions
     if   m["expense_change"] > 40: score -= 20
     elif m["expense_change"] > 20: score -= 10
 
+    # Goal-pressure deductions (NEW)
     if   m["goal_pressure"] > 80: score -= 20
     elif m["goal_pressure"] > 60: score -= 12
     elif m["goal_pressure"] > 40: score -= 5
 
+    # Per-goal funding check (NEW)
     for g in m["goal_details"]:
         if g["target_amount"] > 0:
             if g["progress_percent"] < 10:
@@ -681,6 +837,7 @@ def risk_score():
     })
 
 
+# ── 3. BADGE COUNT ───────────────────────────────────────────────────
 @ai_insights_bp.route("/insight-badge")
 @login_required
 def insight_badge():
@@ -703,6 +860,7 @@ def insight_badge():
     if   m["expense_change"] > 30: high   += 1
     elif m["expense_change"] > 15: medium += 1
 
+    # Goal pressure badge (NEW)
     if   m["goal_pressure"] > 70: high   += 1
     elif m["goal_pressure"] > 40: medium += 1
 
@@ -710,6 +868,7 @@ def insight_badge():
     return jsonify({"count": high + medium, "color": color, "high": high, "medium": medium})
 
 
+# ── 4. SMART NUDGE ───────────────────────────────────────────────────
 @ai_insights_bp.route("/smart-nudge")
 @login_required
 def smart_nudge():
@@ -719,6 +878,7 @@ def smart_nudge():
     finally:
         _safe_close(conn)
 
+    # Show nudge if: month-end OR goal pressure is high
     show_for_goals = m["goal_pressure"] > 60 and m["total_monthly_required"] > m["avg_monthly_surplus"]
     show_for_budget = m["today_day"] > 20 and (m["budget_used_pct"] >= 75 or m["savings_rate"] < 10)
 
@@ -750,9 +910,15 @@ def smart_nudge():
     }})
 
 
+# ── 5. GOAL INTELLIGENCE ENDPOINT (NEW) ─────────────────────────────
 @ai_insights_bp.route("/goal-intelligence")
 @login_required
 def goal_intelligence():
+    """
+    Returns per-goal AI insights: savings suggestions, risk level,
+    monthly targets, and delay warnings. Consumed by GoalsScreen and
+    the unified financial provider.
+    """
     conn = get_db()
     try:
         m = _fetch_full_metrics(conn, session["user_id"])
@@ -808,6 +974,7 @@ def goal_intelligence():
     })
 
 
+# ── 6. BEHAVIORAL PATTERNS ───────────────────────────────────────────
 @ai_insights_bp.route("/behavioral-patterns")
 @login_required
 def behavioral_patterns():
@@ -901,6 +1068,25 @@ def behavioral_patterns():
     return jsonify({"patterns": dedup[:5]})
 
 
+# ── 7. RECURRING SUGGESTIONS V2 — compatibility wrapper ─────────────
+#
+# HISTORICAL NOTE: this endpoint used to run its OWN independent
+# recurrence classifier (_classify / _score_candidate /
+# _build_recurring_candidates - naive substring keyword matching, a
+# separate confidence formula, its own category gates). That duplicated
+# services/recurring_service.py, the two disagreed with each other, and
+# it is what let ordinary repeated merchants ("The New Mirch Masala",
+# "Mahadev Grocery", etc.) get surfaced as recurring "bills" independent
+# of how the new Insights dashboard classified the very same
+# transactions. That entire engine has been REMOVED.
+#
+# services/recurring_service.py is now the single authoritative
+# recurrence/subscription engine for the whole app. This route is kept
+# only because existing frontend code still calls it, and is now a thin
+# compatibility wrapper: it reuses the new engine's classification and
+# due-window logic and reshapes the result into the original response
+# shape, so it can no longer disagree with the unified dashboard.
+
 @ai_insights_bp.route("/recurring-suggestions-v2")
 @login_required
 def recurring_suggestions_v2():
@@ -920,6 +1106,9 @@ def recurring_suggestions_v2():
                 WHERE user_id=%s AND type='expense' AND to_char(date,'YYYY-MM')=%s
             """, (user_id, this_month)).fetchall()
         )
+        # Suggestions the user has already dismissed or added for this
+        # occurrence period (persisted so a page refresh / dashboard
+        # revisit does not re-prompt for the same occurrence).
         handled = set(
             r["suggestion_key"]
             for r in conn.execute("""
@@ -931,6 +1120,8 @@ def recurring_suggestions_v2():
     finally:
         _safe_close(conn)
 
+    # recurrence_type: reshape the new engine's `classification` into the
+    # old vocabulary the frontend expects.
     type_map = {
         "subscription": "subscription",
         "possible_subscription": "subscription",
@@ -944,9 +1135,9 @@ def recurring_suggestions_v2():
         if item["transaction_type"] != "expense":
             continue
         if item["classification"] == "unknown_recurring":
-            continue
+            continue  # not confident enough to actively suggest
         if item["payment_status"] not in ("due_soon", "upcoming", "overdue"):
-            continue
+            continue  # only surface bills that are actually due around now
 
         key = item["normalized_merchant"] or item["name"].lower().strip()
         if key in added or key in handled:
@@ -968,9 +1159,18 @@ def recurring_suggestions_v2():
     return jsonify(out[:5])
 
 
+# ── 8. RECURRING SUGGESTION STATE (persist handled/dismissed) ───────
 @ai_insights_bp.route("/recurring-suggestions-v2/mark", methods=["POST"])
 @login_required
 def mark_recurring_suggestion():
+    """
+    Persists that a recurring-suggestion occurrence has been handled
+    (added or dismissed) so it is not shown again for that occurrence
+    period, across page reloads and dashboard revisits. The underlying
+    recurring detection is untouched — once a new occurrence period
+    arrives (e.g. next month), the suggestion becomes eligible again
+    because this row only applies to the specific occurrence_period.
+    """
     data = request.get_json(silent=True) or {}
     description       = (data.get("description") or "").strip()
     occurrence_period = (data.get("occurrence_period") or "").strip()
