@@ -43,6 +43,48 @@ def _get_month_bounds():
     return cur_start, prev_start, prev_end
 
 
+def _parse_target_date(value):
+    """
+    Normalizes a goal's target_date into a plain `date`, regardless of
+    what shape it comes back as from PostgreSQL / the driver.
+
+    ROOT-CAUSE NOTE (fixed): the previous code assumed target_date was
+    always a "%Y-%m-%d" string and called
+    `datetime.strptime(target_date_str, "%Y-%m-%d")` directly on it.
+    psycopg2 returns DATE columns as `datetime.date` objects, not
+    strings — strptime() on a `date` object raises TypeError, which was
+    caught by a bare `except (ValueError, TypeError): pass` and left
+    monthly_required/months_left as None. That's why a goal with a
+    perfectly valid target_date (24 Aug 2027) was showing "Required
+    ₹0.00/month": the date silently failed to parse, not because the
+    goal had no deadline.
+
+    Supports: datetime.date, datetime.datetime, ISO date strings
+    ("YYYY-MM-DD" and full ISO timestamps, with or without a "Z"
+    suffix), and None/empty (returns None — genuinely no deadline).
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+    return None
+
+
 def _fetch_full_metrics(conn, user_id):
     """
     Unified metrics layer — single source of truth for all intelligence
@@ -139,13 +181,10 @@ def _fetch_full_metrics(conn, user_id):
         avg_monthly_surplus = max(0.0, surplus)
 
     # ═══════════════════════════════════════════════════════════
-    # GOAL PRESSURE CALCULATION
-    # Formula:
-    #   goal_pressure = ((total_target - total_saved) / total_target) * 100
-    #
-    # Elevated further when:
-    #   - A goal has a target_date that is approaching (<3 months)
-    #   - Monthly surplus is insufficient to cover required savings
+    # PER-GOAL DETAIL — monthly_required, months_left, goal_risk.
+    # total_target/total_saved are kept for the progress% fields
+    # elsewhere; they no longer feed into goal_pressure (see below —
+    # pressure is affordability-based, not unfunded-percentage-based).
     # ═══════════════════════════════════════════════════════════
     total_target = 0.0
     total_saved  = 0.0
@@ -166,24 +205,33 @@ def _fetch_full_metrics(conn, user_id):
         monthly_required = None
         months_left_goal = None
         goal_risk        = "low"
-        target_date_str  = row["target_date"] if "target_date" in row.keys() else None
+        target_date_raw  = row["target_date"] if "target_date" in row.keys() else None
+        target_date_str  = target_date_raw.isoformat() if hasattr(target_date_raw, "isoformat") else target_date_raw
 
-        if target_date_str:
-            try:
-                td = datetime.strptime(target_date_str, "%Y-%m-%d")
+        # A goal that's already fully funded (remaining <= 0) needs no
+        # further monthly contribution and can't be "at risk" — a
+        # completed goal must not contribute to total_monthly_required
+        # or pick up a stray goal_risk just because its deadline
+        # happens to be close.
+        if remaining <= 0:
+            monthly_required = 0.0
+            months_left_goal = None
+            goal_risk = "low"
+        else:
+            td = _parse_target_date(target_date_raw)
+            if td is not None:
                 ml = max(1, (td.year - today.year) * 12 + (td.month - today.month))
                 months_left_goal = ml
-                monthly_required = round(remaining / ml, 2) if ml > 0 else remaining
+                monthly_required = round(remaining / ml, 2)
 
-                if monthly_required > avg_monthly_surplus:
-                    goal_risk = "high" if monthly_required > avg_monthly_surplus * 1.5 else "medium"
-                elif ml <= 2:
+                overdue = td < today.date()
+                if overdue or monthly_required > avg_monthly_surplus * 1.5:
+                    goal_risk = "high"
+                elif monthly_required > avg_monthly_surplus or ml <= 2:
                     goal_risk = "medium"
-            except (ValueError, TypeError):
-                pass
-        elif avg_monthly_surplus > 0 and remaining > 0:
-            months_left_goal = round(remaining / avg_monthly_surplus, 1)
-            monthly_required = round(avg_monthly_surplus, 2)
+            elif avg_monthly_surplus > 0:
+                months_left_goal = round(remaining / avg_monthly_surplus, 1)
+                monthly_required = round(avg_monthly_surplus, 2)
 
         goal_details.append({
             "id":               g_id,
@@ -199,25 +247,56 @@ def _fetch_full_metrics(conn, user_id):
             "category":         row["category"],
         })
 
-    # Base goal pressure
-    if total_target > 0:
-        base_pressure = ((total_target - total_saved) / total_target) * 100
-    else:
-        base_pressure = 0.0
-
-    # Urgency bonus — amplify if surplus can't cover goals
+    # ═══════════════════════════════════════════════════════════
+    # GOAL PRESSURE — affordability, not unfunded-percentage
+    #
+    # ROOT-CAUSE NOTE (fixed): pressure used to be
+    #   ((total_target - total_saved) / total_target) * 100
+    # i.e. literally "what % of the goal is still unfunded". That's a
+    # PROGRESS metric, not a pressure metric — it produced "93/100 HIGH
+    # PRESSURE" for a goal that was easily affordable (₹7,750/mo
+    # required against ₹17,146/mo surplus) purely because 93% of the
+    # rupee amount hadn't been saved yet. A goal 5% funded with a
+    # distant deadline and low required contribution is not "under
+    # pressure"; a goal 90% funded but due next week with no surplus
+    # to cover the rest is. Pressure = can-they-afford-it, which is
+    # coverage_ratio = available surplus / required monthly contribution.
+    # ═══════════════════════════════════════════════════════════
     total_monthly_required = sum(
-        float(g["monthly_required"] or 0) for g in goal_details if g["monthly_required"]
+        float(g["monthly_required"] or 0) for g in goal_details if g["remaining"] > 0
     )
-    
-    if avg_monthly_surplus > 0 and total_monthly_required > 0:
-        coverage_ratio = avg_monthly_surplus / total_monthly_required
-        if coverage_ratio < 0.5:
-            base_pressure = min(100.0, base_pressure * 1.3)
-        elif coverage_ratio < 1.0:
-            base_pressure = min(100.0, base_pressure * 1.1)
 
-    goal_pressure = round(min(base_pressure, 100.0), 1)
+    if total_monthly_required <= 0:
+        # Nothing currently required (no active goals, or every active
+        # goal has no computable monthly requirement) → no pressure.
+        goal_pressure = 0.0
+    elif avg_monthly_surplus <= 0:
+        # Money is required and there's no surplus at all to cover it.
+        goal_pressure = 95.0
+    else:
+        coverage_ratio = avg_monthly_surplus / total_monthly_required
+        if   coverage_ratio >= 1.5:  goal_pressure = 15.0  # low
+        elif coverage_ratio >= 1.0:  goal_pressure = 35.0  # manageable
+        elif coverage_ratio >= 0.75: goal_pressure = 60.0  # elevated
+        elif coverage_ratio >= 0.50: goal_pressure = 80.0  # high
+        else:                        goal_pressure = 95.0  # critical
+
+        # Small, capped urgency bump — only when a goal is both
+        # underfunded-relative-to-surplus AND overdue/imminent. This is
+        # deliberately a single flat bump (not per-goal, not
+        # multiplicative) so a portfolio-wide affordability pressure
+        # that's already "high" isn't inflated further by the same
+        # underlying shortfall being counted twice.
+        has_urgent_shortfall = any(
+            g["remaining"] > 0
+            and g["goal_risk"] == "high"
+            and (g["months_left"] is None or g["months_left"] <= 2)
+            for g in goal_details
+        )
+        if has_urgent_shortfall:
+            goal_pressure = min(100.0, goal_pressure + 10.0)
+
+    goal_pressure = round(goal_pressure, 1)
 
     # ═══════════════════════════════════════════════════════════
     # COMBINED RISK SCORE
