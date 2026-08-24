@@ -10,8 +10,8 @@ let _progressAction = 'add';
 ================================================================ */
 async function loadGoals() {
     const listContainer = document.getElementById('goalsList');
-    const emptyState    = document.getElementById('goalsEmpty');
-    const summaryBar    = document.getElementById('goalsSummary');
+    const emptyState = document.getElementById('goalsEmpty');
+    const summaryBar = document.getElementById('goalsSummary');
 
     if (listContainer) {
         listContainer.innerHTML = `
@@ -45,19 +45,19 @@ function _renderGoalsSummary(goals) {
     if (goals.length === 0) { summaryBar.style.display = 'none'; return; }
 
     summaryBar.style.display = '';
-    const completed  = goals.filter(g => g.status === 'completed').length;
-    const totalSaved = goals.reduce((s, g) => s + (g.saved_amount  || 0), 0);
-    const totalTarget= goals.reduce((s, g) => s + (g.target_amount || 0), 0);
+    const completed = goals.filter(g => g.status === 'completed').length;
+    const totalSaved = goals.reduce((s, g) => s + (g.saved_amount || 0), 0);
+    const totalTarget = goals.reduce((s, g) => s + (g.target_amount || 0), 0);
 
-    setEl('summaryTotal',     goals.length);
+    setEl('summaryTotal', goals.length);
     setEl('summaryCompleted', completed);
-    setEl('summarySaved',  '₹' + Number(totalSaved).toLocaleString('en-IN', { maximumFractionDigits: 0 }));
+    setEl('summarySaved', '₹' + Number(totalSaved).toLocaleString('en-IN', { maximumFractionDigits: 0 }));
     setEl('summaryTarget', '₹' + Number(totalTarget).toLocaleString('en-IN', { maximumFractionDigits: 0 }));
 }
 
 function _renderGoalCards(goals) {
     const listContainer = document.getElementById('goalsList');
-    const emptyState    = document.getElementById('goalsEmpty');
+    const emptyState = document.getElementById('goalsEmpty');
 
     if (!listContainer) return;
 
@@ -70,49 +70,54 @@ function _renderGoalCards(goals) {
     if (emptyState) emptyState.classList.add('hidden');
 
     const categoryIcons = {
-        Savings:    'fa-piggy-bank',
+        Savings: 'fa-piggy-bank',
         Investment: 'fa-chart-line',
-        Emergency:  'fa-shield-halved',
-        Vacation:   'fa-plane',
-        Education:  'fa-graduation-cap',
-        Home:       'fa-house',
-        Vehicle:    'fa-car',
+        Emergency: 'fa-shield-halved',
+        Vacation: 'fa-plane',
+        Education: 'fa-graduation-cap',
+        Home: 'fa-house',
+        Vehicle: 'fa-car',
         Retirement: 'fa-umbrella-beach',
     };
 
     listContainer.innerHTML = goals.map(g => {
-        const saved    = Number(g.saved_amount  || 0);
-        const target   = Number(g.target_amount || 0);
-        const pct      = g.progress_percent ?? (target > 0 ? Math.min((saved / target) * 100, 100) : 0);
-        const status   = g.status ?? 'in_progress';
-        const icon     = categoryIcons[g.category] ?? 'fa-bullseye';
+        const saved = Number(g.saved_amount || 0);
+        const target = Number(g.target_amount || 0);
+        const pct = g.progress_percent ?? (target > 0 ? Math.min((saved / target) * 100, 100) : 0);
+        const status = g.status ?? 'in_progress';
+        const icon = categoryIcons[g.category] ?? 'fa-bullseye';
 
         const statusMeta = {
-            completed:   { label: 'Completed',   icon: 'fa-circle-check' },
-            on_track:    { label: 'On Track',    icon: 'fa-circle-check' },
-            at_risk:     { label: 'At Risk',     icon: 'fa-triangle-exclamation' },
+            completed: { label: 'Completed', icon: 'fa-circle-check' },
+            on_track: { label: 'On Track', icon: 'fa-circle-check' },
+            at_risk: { label: 'At Risk', icon: 'fa-triangle-exclamation' },
             in_progress: { label: 'In Progress', icon: 'fa-clock' },
-            no_savings:  { label: 'Not Started', icon: 'fa-circle-pause' },
+            no_savings: { label: 'Not Started', icon: 'fa-circle-pause' },
         };
         const sm = statusMeta[status] ?? statusMeta.in_progress;
 
         const chips = [];
 
-        if (g.months_to_goal !== null && g.months_to_goal !== undefined && status !== 'completed') {
-            const monthLabel = g.months_to_goal <= 0 ? 'Goal near!' : `~${g.months_to_goal} mo left`;
+        // Two distinct concepts, labeled separately so they never read as
+        // contradictory: "at this pace" (capacity-driven) vs. "deadline"
+        // (target_date-driven). See _build_prediction in routes/goals.py.
+        if (g.deadline_months !== null && g.deadline_months !== undefined && status !== 'completed') {
+            chips.push(`<span class="goal-chip"><i class="fa-solid fa-calendar-check"></i>Deadline: ${g.deadline_months} mo</span>`);
+        } else if (g.months_to_goal !== null && g.months_to_goal !== undefined && status !== 'completed') {
+            const monthLabel = g.months_to_goal <= 0 ? 'Goal near!' : `~${g.months_to_goal} mo at current pace`;
             chips.push(`<span class="goal-chip"><i class="fa-solid fa-clock"></i>${escapeHtml(monthLabel)}</span>`);
         }
 
         if (g.monthly_saving > 0) {
-            chips.push(`<span class="goal-chip"><i class="fa-solid fa-arrow-trend-up"></i>Saving ₹${Number(g.monthly_saving).toLocaleString('en-IN', {maximumFractionDigits:0})}/mo</span>`);
+            chips.push(`<span class="goal-chip"><i class="fa-solid fa-arrow-trend-up"></i>Saving ₹${Number(g.monthly_saving).toLocaleString('en-IN', { maximumFractionDigits: 0 })}/mo</span>`);
         }
 
         if (g.required_per_month !== null && g.required_per_month !== undefined && status !== 'completed') {
-            chips.push(`<span class="goal-chip"><i class="fa-solid fa-flag"></i>Need ₹${Number(g.required_per_month).toLocaleString('en-IN', {maximumFractionDigits:0})}/mo</span>`);
+            chips.push(`<span class="goal-chip"><i class="fa-solid fa-flag"></i>Need ₹${Number(g.required_per_month).toLocaleString('en-IN', { maximumFractionDigits: 0 })}/mo to hit deadline</span>`);
         }
 
         if (g.target_date) {
-            const fmt = new Date(g.target_date).toLocaleDateString('en-IN', { month:'short', year:'numeric' });
+            const fmt = new Date(g.target_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
             chips.push(`<span class="goal-chip"><i class="fa-solid fa-calendar"></i>${escapeHtml(fmt)}</span>`);
         }
 
@@ -142,8 +147,8 @@ function _renderGoalCards(goals) {
 
             <div class="goal-progress-section">
                 <div class="goal-amounts">
-                    <span class="goal-saved">₹${Number(saved).toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                    <span class="goal-target">of ₹${Number(target).toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                    <span class="goal-saved">₹${Number(saved).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span class="goal-target">of ₹${Number(target).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div class="goal-progress-bar" role="progressbar" aria-valuenow="${pct.toFixed(1)}" aria-valuemin="0" aria-valuemax="100">
                     <div class="goal-progress-fill" style="width:${pct.toFixed(1)}%"></div>
@@ -212,16 +217,16 @@ async function addGoal(e) {
     setButtonLoading(btn, 'Saving…');
 
     const payload = {
-        name:        document.getElementById('goalName').value.trim(),
-        target:      document.getElementById('goalTarget').value,
-        category:    document.getElementById('goalCategory').value,
+        name: document.getElementById('goalName').value.trim(),
+        target: document.getElementById('goalTarget').value,
+        category: document.getElementById('goalCategory').value,
         target_date: document.getElementById('goalTargetDate').value || null,
     };
 
     try {
         const res = await authFetch('/add-goal', {
             method: 'POST',
-            body:   JSON.stringify(payload),
+            body: JSON.stringify(payload),
         });
 
         if (res && (res.ok || res.status === 201)) {
@@ -231,7 +236,7 @@ async function addGoal(e) {
             loadGoals();
         } else {
             let msg = 'Failed to create goal';
-            try { const d = await res.json(); msg = d.error || msg; } catch (_) {}
+            try { const d = await res.json(); msg = d.error || msg; } catch (_) { }
             showNotification(msg, 'error');
         }
     } catch (err) {
@@ -251,8 +256,8 @@ async function deleteGoal(goalId, goalName) {
     const card = document.querySelector(`.goal-card[data-goal-id="${goalId}"]`);
     if (card) {
         card.style.transition = 'opacity 0.25s, transform 0.25s';
-        card.style.opacity    = '0';
-        card.style.transform  = 'scale(0.96)';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.96)';
     }
 
     try {
@@ -264,7 +269,7 @@ async function deleteGoal(goalId, goalName) {
         } else {
             if (card) { card.style.opacity = '1'; card.style.transform = ''; }
             let msg = 'Failed to delete goal';
-            try { const d = await res.json(); msg = d.error || msg; } catch (_) {}
+            try { const d = await res.json(); msg = d.error || msg; } catch (_) { }
             showNotification(msg, 'error');
         }
     } catch (err) {
@@ -277,11 +282,11 @@ async function deleteGoal(goalId, goalName) {
    PROGRESS MODAL (Add Funds / Withdraw)
 ================================================================ */
 function openProgressModal(goalId, goalName, currentSaved, action = 'add') {
-    document.getElementById('progressGoalId').value  = goalId;
+    document.getElementById('progressGoalId').value = goalId;
     document.getElementById('progressGoalName').textContent =
         `Goal: ${goalName}`;
     document.getElementById('progressGoalSaved').textContent =
-        `Currently saved: ₹${Number(currentSaved).toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}`;
+        `Currently saved: ₹${Number(currentSaved).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     document.getElementById('progressAmount').value = '';
     setProgressAction(action);
     document.getElementById('goalProgressModal').classList.remove('hidden');
@@ -295,9 +300,9 @@ function closeProgressModal() {
 
 function setProgressAction(action) {
     _progressAction = action;
-    const addBtn  = document.getElementById('progressToggleAdd');
-    const wdwBtn  = document.getElementById('progressToggleWithdraw');
-    const submit  = document.getElementById('progressSubmitBtn');
+    const addBtn = document.getElementById('progressToggleAdd');
+    const wdwBtn = document.getElementById('progressToggleWithdraw');
+    const submit = document.getElementById('progressSubmitBtn');
 
     addBtn.classList.toggle('active', action === 'add');
     wdwBtn.classList.toggle('active', action === 'withdraw');
@@ -326,8 +331,8 @@ async function submitProgress() {
             method: 'POST',
             body: JSON.stringify({
                 goal_id: parseInt(goalId, 10),
-                amount:  amount,
-                action:  _progressAction,
+                amount: amount,
+                action: _progressAction,
             }),
         });
 
@@ -338,7 +343,7 @@ async function submitProgress() {
             loadGoals();
         } else {
             let msg = 'Failed to update goal';
-            try { const d = await res.json(); msg = d.error || msg; } catch (_) {}
+            try { const d = await res.json(); msg = d.error || msg; } catch (_) { }
             showNotification(msg, 'error');
         }
     } catch (err) {
@@ -355,8 +360,8 @@ async function submitProgress() {
 ================================================================ */
 async function openPredictionModal(goalId, goalName) {
     const modal = document.getElementById('goalPredictionModal');
-    const body  = document.getElementById('predictionModalBody');
-    const sub   = document.getElementById('predictionModalSubtitle');
+    const body = document.getElementById('predictionModalBody');
+    const sub = document.getElementById('predictionModalSubtitle');
 
     if (!modal || !body) return;
 
@@ -379,26 +384,27 @@ async function openPredictionModal(goalId, goalName) {
         }
 
         const data = await res.json();
-        const d    = data.data ?? data;
+        const d = data.data ?? data;
 
-        const status          = d.status ?? 'unknown';
-        const monthsToGoal    = d.months_to_goal;
-        const monthlySaving   = Number(d.monthly_saving  ?? 0);
+        const status = d.status ?? 'unknown';
+        const monthsToGoal = d.months_to_goal;
+        const monthlySaving = Number(d.monthly_saving ?? 0);
         const remainingAmount = Number(d.remaining_amount ?? 0);
-        const requiredPerMonth= d.required_per_month != null ? Number(d.required_per_month) : null;
+        const requiredPerMonth = d.required_per_month != null ? Number(d.required_per_month) : null;
+        const deadlineMonths = d.deadline_months != null ? Number(d.deadline_months) : null;
 
         const statusMeta = {
-            completed:   { color: 'var(--success)', icon: 'fa-circle-check',         label: 'Completed' },
-            on_track:    { color: 'var(--primary)', icon: 'fa-circle-check',          label: 'On Track' },
-            at_risk:     { color: 'var(--danger)',  icon: 'fa-triangle-exclamation',  label: 'At Risk' },
-            in_progress: { color: 'var(--warning)', icon: 'fa-clock',                 label: 'In Progress' },
+            completed: { color: 'var(--success)', icon: 'fa-circle-check', label: 'Completed' },
+            on_track: { color: 'var(--primary)', icon: 'fa-circle-check', label: 'On Track' },
+            at_risk: { color: 'var(--danger)', icon: 'fa-triangle-exclamation', label: 'At Risk' },
+            in_progress: { color: 'var(--warning)', icon: 'fa-clock', label: 'In Progress' },
         };
         const sm = statusMeta[status] ?? { color: 'var(--text-secondary)', icon: 'fa-circle-info', label: status };
 
         const metrics = [];
 
         metrics.push({
-            icon:  'fa-chart-pie',
+            icon: 'fa-chart-pie',
             label: 'Status',
             value: `<span style="display:inline-flex;align-items:center;gap:6px;color:${sm.color};font-weight:700;">
                         <i class="fa-solid ${sm.icon}" aria-hidden="true"></i> ${sm.label}
@@ -406,22 +412,22 @@ async function openPredictionModal(goalId, goalName) {
         });
 
         metrics.push({
-            icon:  'fa-coins',
+            icon: 'fa-coins',
             label: 'Remaining',
-            value: `₹${remainingAmount.toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}`,
+            value: `₹${remainingAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         });
 
         metrics.push({
-            icon:  'fa-arrow-trend-up',
+            icon: 'fa-arrow-trend-up',
             label: 'Current Monthly Saving',
             value: monthlySaving > 0
-                ? `₹${monthlySaving.toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}/mo`
+                ? `₹${monthlySaving.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo`
                 : '<span style="color:var(--text-tertiary);">No savings this month</span>',
         });
 
         metrics.push({
-            icon:  'fa-clock',
-            label: 'Estimated Time to Goal',
+            icon: 'fa-clock',
+            label: 'Estimated Time at Current Pace',
             value: monthsToGoal === 0
                 ? '<span style="color:var(--success);font-weight:700;">Goal reached! 🎉</span>'
                 : monthsToGoal != null
@@ -429,15 +435,23 @@ async function openPredictionModal(goalId, goalName) {
                     : '<span style="color:var(--text-tertiary);">Cannot estimate — no savings</span>',
         });
 
+        if (deadlineMonths !== null) {
+            metrics.push({
+                icon: 'fa-calendar-check',
+                label: 'Target Deadline',
+                value: `<strong>${deadlineMonths} month${deadlineMonths !== 1 ? 's' : ''}</strong> (from target date)`,
+            });
+        }
+
         if (requiredPerMonth !== null) {
             const gap = requiredPerMonth - monthlySaving;
             const gapHtml = gap > 0
-                ? `<span style="color:var(--danger);font-size:.8rem;margin-left:8px;">↑ ₹${gap.toLocaleString('en-IN', {maximumFractionDigits:0})} shortfall/mo</span>`
+                ? `<span style="color:var(--danger);font-size:.8rem;margin-left:8px;">↑ ₹${gap.toLocaleString('en-IN', { maximumFractionDigits: 0 })} shortfall/mo</span>`
                 : `<span style="color:var(--success);font-size:.8rem;margin-left:8px;">✓ Covered</span>`;
             metrics.push({
-                icon:  'fa-flag',
+                icon: 'fa-flag',
                 label: 'Required to Hit Deadline',
-                value: `₹${requiredPerMonth.toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}/mo ${gapHtml}`,
+                value: `₹${requiredPerMonth.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo ${gapHtml}`,
             });
         }
 
@@ -478,4 +492,3 @@ function closePredictionModal() {
     const modal = document.getElementById('goalPredictionModal');
     if (modal) modal.classList.add('hidden');
 }
-

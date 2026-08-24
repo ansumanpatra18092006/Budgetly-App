@@ -9,13 +9,16 @@ Endpoints:
   POST /update-goal-progress
   GET  /get-goals-detailed
   DEL  /delete-goal/<goal_id>
-  POST /generate-roadmap          ← unified backend roadmap generator
+  POST /generate-roadmap          ← unified backend roadmap generator (deterministic)
+  POST /explain-roadmap-ai        ← optional, user-triggered Gemini explanation layer
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from flask import Blueprint, jsonify, request, session
@@ -25,10 +28,29 @@ from utils.decorators import login_required
 from routes.ai_insights import _fetch_full_metrics
 from ml.anomaly_model import detect_anomalies
 from ml.forecast_model import predict_next_month
+from services import gemini_service
 
 logger = logging.getLogger(__name__)
 
 goals_bp = Blueprint("goals", __name__)
+
+# In-memory cache for AI roadmap explanations: (user_id, goal_id, inputs_hash) -> explanation dict.
+# Deliberately process-local and unbounded-TTL-by-content — a new hash is
+# generated whenever any input that matters (saved amount, target date,
+# capacity, etc.) changes, so stale entries just stop being looked up
+# rather than needing active invalidation.
+_ROADMAP_EXPLANATION_CACHE: dict[tuple, dict] = {}
+
+_GEMINI_SYSTEM_INSTRUCTION = (
+    "You are explaining an already-calculated financial savings roadmap to the user. "
+    "Do not recalculate any numerical values. Do not change the target date. "
+    "Do not change the required monthly savings or months required. "
+    "Do not invent financial data or introduce new unsupported metrics. "
+    "Treat every number in the supplied data as authoritative and final. "
+    "Respond with a compact JSON object shaped exactly like: "
+    '{"summary": "...", "why": "...", "priority": "...", "guidance": ["...", "...", "..."]}. '
+    "Keep it concise, plain language, and specific to the numbers given."
+)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -40,6 +62,33 @@ def _months_between(start: datetime, end: datetime) -> float:
     return (end.year - start.year) * 12 + (end.month - start.month) + (
         end.day - start.day
     ) / 30.0
+
+
+def _coerce_target_date(value) -> Optional[datetime]:
+    """
+    Normalize a goal's target_date to a datetime, regardless of what the
+    DB driver handed back.
+
+    psycopg2/PostgreSQL DATE columns come back as `datetime.date` (not
+    `str`) in some driver/row-factory configurations, while other paths
+    in this file (e.g. the add-goal request body) hand this a plain
+    "YYYY-MM-DD" string. Calling `datetime.strptime()` unconditionally
+    crashes the moment a real `date`/`datetime` object shows up — this
+    normalizes both cases (and tolerates None/empty/garbage) instead of
+    assuming a single wire format.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if isinstance(value, str):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return None
+    return None
 
 
 def _get_monthly_cash_flow(conn, user_id: int):
@@ -74,386 +123,6 @@ def _get_monthly_cash_flow(conn, user_id: int):
 
     return avg_income, avg_expense, volatility
 
-# ════════════════════════════════════════════════════════════════
-# POST /generate-roadmap
-# ════════════════════════════════════════════════════════════════
-def generate_roadmap_handler():
-    """
-    Unified intelligent roadmap generator.
- 
-    Integrates: risk analysis, goal progress, anomalies, ML forecast.
- 
-    Request body:
-        { "goal_id": <int> }
- 
-    Response adds (on top of existing fields):
-        - risk_summary        : current financial risk context
-        - anomaly_warning     : if irregular spending detected
-        - forecast_note       : ML-based next-month expense forecast
-        - goal_urgency        : "critical" | "urgent" | "on_track"
-        - monthly_plan        : per-month savings breakdown
-        - behavioral_notes    : context-aware advice from behavioral data
-    """
-    user_id = session["user_id"]
-    data    = request.get_json(silent=True) or {}
- 
-    goal_id_raw = data.get("goal_id")
-    if goal_id_raw is None:
-        return jsonify({"error": "goal_id is required"}), 400
- 
-    try:
-        goal_id = int(goal_id_raw)
-    except (TypeError, ValueError):
-        return jsonify({"error": "goal_id must be an integer"}), 400
- 
-    conn = get_db()
-    try:
-        goal_row = conn.execute("""
-            SELECT id, name, target_amount, saved_amount, category, target_date
-            FROM goals WHERE id=%s AND user_id=%s
-        """, (goal_id, user_id)).fetchone()
- 
-        if not goal_row:
-            return jsonify({"error": "Goal not found"}), 404
- 
-        # ── Unified metrics (includes goal_pressure, combined_risk) ──
-        metrics = _fetch_full_metrics(conn, user_id)
- 
-        # ── Monthly cash flow ─────────────────────────────────────
-        avg_income, avg_expense, volatility = _get_monthly_cash_flow(conn, user_id)
- 
-        # ── All expense history for anomaly detection + forecast ──
-        expense_hist = conn.execute("""
-            SELECT TO_CHAR(date::date, 'YYYY-MM') AS month, SUM(amount) AS total
-            FROM transactions WHERE user_id=%s AND type='expense'
-            GROUP BY month ORDER BY month ASC
-        """, (user_id,)).fetchall()
- 
-        # ── Anomaly check (individual transactions) ───────────────
-        tx_amounts = conn.execute("""
-            SELECT amount FROM transactions
-            WHERE user_id=%s AND type='expense' ORDER BY date ASC
-        """, (user_id,)).fetchall()
- 
-    finally:
-        conn.close()
- 
-    goal = dict(goal_row)
- 
-    saved     = float(goal["saved_amount"]  or 0)
-    target    = float(goal["target_amount"] or 0)
-    remaining = max(target - saved, 0.0)
-    pct_done  = round(saved / target * 100, 1) if target > 0 else 0.0
- 
-    # ════════════════════════════════════════════════════════════
-    # ANOMALY DETECTION
-    # ════════════════════════════════════════════════════════════
-    anomaly_warning = None
-    try:
-        from ml.anomaly_model import detect_anomalies
-        amounts   = [float(r["amount"]) for r in tx_amounts]
-        anomalies = detect_anomalies(amounts) if len(amounts) > 5 else []
-        if len(anomalies) >= 2:
-            anomaly_warning = (
-                f"Irregular spending detected in {len(anomalies)} recent transactions. "
-                "Consider stabilising expenses before aggressive goal contributions."
-            )
-    except Exception:
-        pass
- 
-    # ════════════════════════════════════════════════════════════
-    # ML FORECAST
-    # ════════════════════════════════════════════════════════════
-    forecast_note     = None
-    forecast_expense  = None
-    try:
-        from ml.forecast_model import predict_next_month
-        monthly_expenses = [float(r["total"]) for r in expense_hist if r["total"]]
-        if len(monthly_expenses) >= 3:
-            forecast_expense = predict_next_month(monthly_expenses)
-            budget = metrics.get("budget", 0)
-            if budget > 0 and forecast_expense > budget:
-                forecast_note = (
-                    f"Next month's expenses are forecast at ₹{int(forecast_expense)}, "
-                    f"which exceeds your budget of ₹{int(budget)}. "
-                    "Plan your goal contributions conservatively."
-                )
-            elif forecast_expense > avg_expense * 1.2:
-                forecast_note = (
-                    f"Expenses are trending up (forecast: ₹{int(forecast_expense)}). "
-                    "Building a buffer now protects your goal contributions."
-                )
-    except Exception:
-        pass
- 
-    # ════════════════════════════════════════════════════════════
-    # MONTHLY CAPACITY
-    # ════════════════════════════════════════════════════════════
-    surplus_live     = float(metrics.get("surplus", 0))
-    avg_monthly_flow = max(0.0, avg_income - avg_expense)
-    monthly_capacity = (
-        surplus_live if surplus_live > 0
-        else avg_monthly_flow if avg_monthly_flow > 0
-        else max(target * 0.05, 1000.0)
-    )
- 
-    # ════════════════════════════════════════════════════════════
-    # RISK & DIFFICULTY (now uses combined_risk + goal_pressure)
-    # ════════════════════════════════════════════════════════════
-    savings_rate     = float(metrics.get("savings_rate",    0))
-    budget_used_pct  = float(metrics.get("budget_used_pct", 0))
-    expense_change   = float(metrics.get("expense_change",  0))
-    goal_pressure    = float(metrics.get("goal_pressure",   0))
-    combined_risk    = metrics.get("combined_risk", "low")
-    top_cat          = metrics.get("top_cat_name", "spending")
-    top_pct          = float(metrics.get("top_cat_pct", 0))
-    income           = float(metrics.get("income", 0))
-    expense          = float(metrics.get("expense", 0))
-    daily_burn       = float(metrics.get("daily_burn", 0))
- 
-    # Difficulty incorporates combined risk and goal pressure
-    if combined_risk == "high" or monthly_capacity <= 0 or savings_rate < 5:
-        difficulty = "Hard"
-    elif combined_risk == "medium" or goal_pressure > 60 or budget_used_pct > 70:
-        difficulty = "Medium"
-    else:
-        difficulty = "Easy"
- 
-    # ════════════════════════════════════════════════════════════
-    # GOAL URGENCY (NEW)
-    # ════════════════════════════════════════════════════════════
-    target_date     = goal.get("target_date")
-    months_required = None
-    required_monthly = None
- 
-    if target_date:
-        try:
-            target_dt       = datetime.strptime(target_date, "%Y-%m-%d")
-            today           = datetime.today()
-            deadline_months = max(1, (target_dt.year - today.year) * 12 + (target_dt.month - today.month))
-            months_required  = deadline_months
-            required_monthly = round(remaining / deadline_months, 2) if deadline_months > 0 else None
-        except (ValueError, TypeError):
-            pass
- 
-    if months_required is None:
-        if monthly_capacity > 0 and remaining > 0:
-            months_required  = round(remaining / monthly_capacity, 1)
-            required_monthly = monthly_capacity
- 
-    monthly_savings_needed = required_monthly if required_monthly is not None else monthly_capacity
- 
-    # Urgency classification
-    if months_required and months_required <= 2:
-        goal_urgency = "critical"
-    elif goal_pressure > 70 or (required_monthly and required_monthly > monthly_capacity * 1.2):
-        goal_urgency = "urgent"
-    else:
-        goal_urgency = "on_track"
- 
-    # ════════════════════════════════════════════════════════════
-    # MONTHLY PLAN (detailed per-month breakdown — NEW)
-    # ════════════════════════════════════════════════════════════
-    num_phases = min(int(months_required or 6), 12)
-    num_phases = max(num_phases, 1)
- 
-    save_per_phase = remaining / num_phases if num_phases else remaining
-    today_dt = datetime.today()
- 
-    monthly_plan = []
-    cumulative_saved = saved
-    for i in range(num_phases):
-        month_dt = today_dt + timedelta(days=30 * (i + 1))
-        month_label = month_dt.strftime("%b %Y")
-        cumulative_saved = min(cumulative_saved + save_per_phase, target)
-        progress = round(cumulative_saved / target * 100, 1) if target > 0 else 0
- 
-        monthly_plan.append({
-            "month":           month_label,
-            "month_number":    i + 1,
-            "save_target":     round(monthly_savings_needed, 2),
-            "cumulative_saved": round(cumulative_saved, 2),
-            "progress_pct":    progress,
-            "is_milestone":    (i + 1) in [
-                num_phases // 4, num_phases // 2, num_phases * 3 // 4, num_phases
-            ],
-        })
- 
-    # ════════════════════════════════════════════════════════════
-    # PHASES (action steps, enhanced with risk & goal context)
-    # ════════════════════════════════════════════════════════════
-    _ACTION_POOL = [
-        [
-            f"Review {top_cat} transactions — currently {top_pct:.0f}% of spend",
-            f"Set daily cap of ₹{int(daily_burn * 0.9):,} (10% below burn rate)",
-            f"Automate ₹{int(monthly_savings_needed):,}/month to this goal",
-            "Pause unused subscriptions for 90 days",
-        ],
-        [
-            f"Reduce {top_cat} by 10–15% to free ₹{int(expense * top_pct / 100 * 0.12):,}",
-            "Batch purchases to eliminate impulse spending",
-            f"Confirm ₹{int(monthly_savings_needed):,} transferred this month",
-        ],
-        [
-            "Redirect cashback, rewards, and windfalls to this goal",
-            f"Stretch save to ₹{int(monthly_savings_needed * 1.1):,} by cutting one luxury",
-            "Renegotiate recurring bills for better rates",
-        ],
-        [
-            "Maintain pace — discipline compounds in final months",
-            "If ahead: top up early to close the gap",
-            "If behind: pause discretionary spending for 2 weeks",
-        ],
-    ]
- 
-    _TIPS = [
-        "Open a dedicated savings account to ring-fence this goal.",
-        f"A 15% cut in {top_cat} alone could accelerate your timeline significantly.",
-        "Windfalls (bonuses, gifts, refunds) should go straight to the goal.",
-        "Visualising the completed goal daily sharpens motivation.",
-        "Keep the habit alive after this goal — momentum is the real prize.",
-    ]
- 
-    phases = []
-    for i in range(num_phases):
-        action_set = _ACTION_POOL[i % len(_ACTION_POOL)]
-        tip        = _TIPS[i % len(_TIPS)]
-        plan_entry = monthly_plan[i] if i < len(monthly_plan) else {}
- 
-        phases.append({
-            "title":          f"Month {i + 1}",
-            "month_label":    plan_entry.get("month", f"Month {i + 1}"),
-            "target_savings": round(monthly_savings_needed, 2),
-            "milestone":      plan_entry.get("cumulative_saved", 0),
-            "progress_pct":   plan_entry.get("progress_pct", 0),
-            "actions":        action_set,
-            "tip":            tip,
-            "is_milestone":   plan_entry.get("is_milestone", False),
-        })
- 
-    # ════════════════════════════════════════════════════════════
-    # QUICK WINS
-    # ════════════════════════════════════════════════════════════
-    quick_wins = [
-        f"Cut {top_cat} spending by 10% — saves ~₹{int(expense * top_pct / 100 * 0.10):,} this month",
-        f"Automate ₹{int(monthly_savings_needed):,}/month transfer today",
-        "Track every expense for 7 days to surface hidden leaks",
-    ]
-    if savings_rate < 15:
-        quick_wins.append(f"Raise savings rate from {savings_rate:.0f}% to 20%")
-    if budget_used_pct > 75:
-        quick_wins.append("Cancel any subscription unused in the last 30 days")
-    if anomaly_warning:
-        quick_wins.append("Investigate and eliminate the irregular spending transactions")
- 
-    # ════════════════════════════════════════════════════════════
-    # RISKS (enriched with goal pressure + forecast)
-    # ════════════════════════════════════════════════════════════
-    risks = []
- 
-    if combined_risk == "high":
-        risks.append(f"Overall financial risk is HIGH — goal contributions are at risk")
-    if monthly_capacity <= 0:
-        risks.append("Current expenses exceed income — no savings headroom without cuts")
-    if savings_rate < 10:
-        risks.append(f"Savings rate {savings_rate:.0f}% — below the 10% minimum")
-    if budget_used_pct > 80:
-        risks.append(f"Budget at {budget_used_pct:.0f}% — overspend risk is elevated")
-    if expense_change > 20:
-        risks.append(f"Expenses rose {expense_change:.0f}% vs last month")
-    if required_monthly and monthly_capacity > 0 and required_monthly > monthly_capacity:
-        risks.append(
-            f"Needed ₹{int(required_monthly):,}/mo exceeds capacity ₹{int(monthly_capacity):,} — deadline may slip"
-        )
-    if goal_pressure > 70:
-        risks.append(f"High goal pressure ({goal_pressure:.0f}/100) — multiple goals competing for limited surplus")
-    if volatility > monthly_capacity * 0.4:
-        risks.append("Irregular spending detected — build a buffer before aggressive saving")
-    if forecast_expense and expense > 0 and forecast_expense > expense * 1.15:
-        risks.append(f"Expenses forecast to rise to ₹{int(forecast_expense):,} next month")
- 
-    if not risks:
-        risks.append("No major risks detected — maintain current discipline")
- 
-    # ════════════════════════════════════════════════════════════
-    # BEHAVIORAL NOTES (NEW — context-aware from patterns)
-    # ════════════════════════════════════════════════════════════
-    behavioral_notes = []
-    if top_pct > 40:
-        behavioral_notes.append(
-            f"{top_cat} dominates your spending at {top_pct:.0f}%. "
-            "Creating a dedicated sub-budget for this category will protect goal contributions."
-        )
-    if expense_change > 20:
-        behavioral_notes.append(
-            f"Your spending increased {expense_change:.0f}% last month. "
-            "Review what changed and correct before it becomes a habit."
-        )
-    if goal_urgency == "critical":
-        behavioral_notes.append(
-            "Goal deadline is very close. Treat goal contributions as a non-negotiable expense — pay yourself first."
-        )
- 
-    # ════════════════════════════════════════════════════════════
-    # MOTIVATION + SUMMARY
-    # ════════════════════════════════════════════════════════════
-    months_display = (
-        f"{months_required:.0f} month{'s' if months_required != 1 else ''}"
-        if months_required else "some time"
-    )
- 
-    motivation = (
-        f"You are ₹{int(remaining):,} away from '{goal['name']}'. "
-        f"Saving ₹{int(monthly_savings_needed):,}/month will reach it in {months_display}. "
-        f"You've already saved {pct_done:.0f}% — keep going!"
-    )
- 
-    summary = (
-        f"Save ₹{int(monthly_savings_needed):,}/month to reach "
-        f"'{goal['name']}' (₹{int(target):,}) in about {months_display}."
-    )
- 
-    # ── Risk summary (NEW) ───────────────────────────────────────
-    risk_summary = {
-        "combined_risk":  combined_risk,
-        "goal_pressure":  goal_pressure,
-        "savings_rate":   savings_rate,
-        "budget_used":    budget_used_pct,
-        "label": (
-            "Your finances are under pressure — prioritise stabilisation before this goal."
-            if combined_risk == "high" else
-            "Manageable risk. Stay disciplined with the monthly plan."
-            if combined_risk == "medium" else
-            "Healthy financial position — ideal conditions to reach this goal."
-        )
-    }
- 
-    return jsonify({
-        # ── Core (Flutter-compatible) ─────────────────────────
-        "difficulty":             difficulty,
-        "months_required":        months_required,
-        "monthly_savings_needed": round(monthly_savings_needed, 2),
-        "remaining_amount":       round(remaining, 2),
-        "phases":                 phases,
-        "quick_wins":             quick_wins,
-        "risks":                  risks,
-        "motivation":             motivation,
-        "summary":                summary,
-        "strategy": (
-            "aggressive"   if required_monthly and required_monthly > monthly_capacity else
-            "conservative" if budget_used_pct > 80 else
-            "balanced"
-        ),
-        # ── Enhanced intelligence (NEW) ───────────────────────
-        "goal_urgency":      goal_urgency,
-        "risk_summary":      risk_summary,
-        "monthly_plan":      monthly_plan,
-        "behavioral_notes":  behavioral_notes,
-        "anomaly_warning":   anomaly_warning,
-        "forecast_note":     forecast_note,
-        "goal_pressure":     goal_pressure,
-        "pct_done":          pct_done,
-    })
 
 def _build_prediction(
     saved: float,
@@ -481,17 +150,17 @@ def _build_prediction(
 
     required_per_month = None
     months_left        = None
+    deadline_months     = None  # target-date-driven timeline, kept separate from months_to_goal (capacity-driven)
 
     if target_date:
-        try:
-            td         = datetime.strptime(target_date, "%Y-%m-%d")
+        td = _coerce_target_date(target_date)
+        if td is not None:
             months_left = _months_between(datetime.today(), td)
+            deadline_months = max(months_left, 0.0)
             if months_left > 0:
                 required_per_month = round(remaining / months_left, 2)
             else:
                 required_per_month = remaining
-        except ValueError:
-            pass
 
     volatility_penalty = 0
     if volatility > monthly_saving * 0.5:
@@ -521,10 +190,14 @@ def _build_prediction(
         status = "on_track"
 
     return {
+        # ── Capacity-driven estimate: "how long at your current pace" ──
         "months_to_goal":       months_to_goal,
         "monthly_saving":       round(adjusted_saving, 2),
-        "remaining_amount":     round(remaining, 2),
+        # ── Deadline-driven requirement: "what the target date demands" ──
+        "deadline_months":      round(deadline_months, 1) if deadline_months is not None else None,
         "required_per_month":   required_per_month,
+        # ── Shared ──
+        "remaining_amount":     round(remaining, 2),
         "predicted_completion": predicted_completion,
         "success_probability":  success_probability,
         "volatility":           round(volatility, 2),
@@ -818,78 +491,75 @@ def delete_goal(goal_id: int):
 
 
 # ─────────────────────────────────────────────────────────────────
-# POST /generate-roadmap
-# Unified backend roadmap generator used by both the Flutter app
-# and the web dashboard.  No external AI API required.
+# Shared deterministic roadmap computation
+#
+# Used by /generate-roadmap directly, and reused by /explain-roadmap-ai
+# so the numbers Gemini is asked to explain are guaranteed to be the
+# exact same numbers the user is looking at — never client-supplied,
+# never recalculated by the AI.
 # ─────────────────────────────────────────────────────────────────
 
-@goals_bp.route("/generate-roadmap", methods=["POST"])
-@login_required
-def generate_roadmap():
+# Safety valve only — protects against pathological inputs (e.g. a
+# 50-year target) generating thousands of phase objects. It NEVER
+# changes months_required/monthly_savings_needed; if the true timeline
+# exceeds this, phases_truncated=True is returned so the UI can be
+# honest about it instead of silently lying via a hidden cap.
+_MAX_GENERATED_PHASES = 120
+
+
+def _group_phases_quarterly(phases: list[dict]) -> list[dict]:
+    """Roll monthly phases into quarter-sized groups for long-timeline UX.
+
+    Purely a presentation aid — the underlying `phases` list (and the
+    months_required it represents) is never altered by this.
+    """
+    groups = []
+    for i in range(0, len(phases), 3):
+        chunk = phases[i:i + 3]
+        groups.append({
+            "label":               f"Q{i // 3 + 1}",
+            "phase_indexes":       list(range(i, i + len(chunk))),
+            "months":              [p["title"] for p in chunk],
+            "target_savings_total": round(sum(p["target_savings"] for p in chunk), 2),
+            "milestone":           chunk[-1]["milestone"],
+        })
+    return groups
+
+
+def _compute_roadmap(goal: dict, metrics: dict, avg_income: float,
+                      avg_expense: float, volatility: float) -> dict:
     """
     Generate a personalised savings roadmap for a single goal.
 
-    Request body:
-        { "goal_id": <int> }
-
     Response shape (compatible with roadmap_screen.dart + roadmap.js):
         {
-            "difficulty":             "Easy" | "Medium" | "Hard",
-            "months_required":        <number | null>,
-            "monthly_savings_needed": <number>,
-            "remaining_amount":       <number>,
+            "difficulty":               "Easy" | "Medium" | "Hard",
+            "plan_type":                "deadline" | "capacity",
+            "deadline_status":          "on_track" | "at_risk" | "no_deadline",
+            "months_required":          <number | null>,
+            "monthly_savings_needed":   <number>,
+            "current_monthly_capacity": <number>,
+            "capacity_gap":             <number | null>,
+            "remaining_amount":         <number>,
             "phases": [
                 {
                     "title":          "Month N",
                     "target_savings": <number>,
+                    "milestone":      <number>,
                     "actions":        [<string>, ...],
                     "tip":            <string>
                 },
                 ...
             ],
+            "phases_truncated":  <bool>,
+            "phase_view": { "mode": "monthly" | "quarterly", "groups": [...] | null },
             "quick_wins":  [<string>, ...],
             "risks":       [<string>, ...],
             "motivation":  <string>,
-            "summary":     <string>
+            "summary":     <string>,
+            "strategy":    "aggressive" | "conservative" | "balanced",
         }
     """
-    user_id = session["user_id"]
-    data    = request.get_json(silent=True) or {}
-
-    goal_id_raw = data.get("goal_id")
-    if goal_id_raw is None:
-        return jsonify({"error": "goal_id is required"}), 400
-
-    try:
-        goal_id = int(goal_id_raw)
-    except (TypeError, ValueError):
-        return jsonify({"error": "goal_id must be an integer"}), 400
-
-    # ── 1. Fetch goal row ─────────────────────────────────────────
-    conn = get_db()
-    try:
-        goal_row = conn.execute(
-            """
-            SELECT id, name, target_amount, saved_amount, category, target_date
-            FROM   goals
-            WHERE  id = %s AND user_id = %s
-            """,
-            (goal_id, user_id),
-        ).fetchone()
-
-        if not goal_row:
-            return jsonify({"error": "Goal not found"}), 404
-
-        # ── 2. Fetch live financial metrics ───────────────────────
-        metrics = _fetch_full_metrics(conn, user_id)
-
-        # ── 3. Monthly cash flow (last 3 months average) ──────────
-        avg_income, avg_expense, volatility = _get_monthly_cash_flow(conn, user_id)
-    finally:
-        conn.close()
-
-    goal = dict(goal_row)
-
     saved     = float(goal["saved_amount"]  or 0)
     target    = float(goal["target_amount"] or 0)
     remaining = max(target - saved, 0.0)
@@ -924,42 +594,55 @@ def generate_roadmap():
     else:
         difficulty = "Medium"
 
-    # ── 6. Months required ────────────────────────────────────────
-    # If the user has a target_date, honour it; otherwise calculate.
+    # ── 6. Months required ──────────────────────────────────────────
+    # TWO DISTINCT CONCEPTS, kept separate end to end:
+    #   A) deadline-driven required timeline (target_date is authoritative)
+    #   B) capacity-driven affordable estimate (only used when no target_date)
+    # A goal with a target_date NEVER has its timeline silently stretched
+    # to match current capacity — instead capacity_gap/deadline_status
+    # surface the shortfall.
     months_required   = None
     required_monthly  = None
     target_date       = goal.get("target_date")
+    plan_type         = None
 
     if target_date:
-        try:
-            target_dt        = datetime.strptime(target_date, "%Y-%m-%d")
-            today            = datetime.today()
-            deadline_months  = max(
+        target_dt = _coerce_target_date(target_date)
+        if target_dt is not None:
+            today           = datetime.today()
+            deadline_months = max(
                 1,
                 (target_dt.year  - today.year)  * 12 +
                 (target_dt.month - today.month)
             )
             months_required  = deadline_months
-            required_monthly = round(remaining / deadline_months, 2) if deadline_months > 0 else None
-        except (ValueError, TypeError):
-            pass
+            required_monthly = round(remaining / deadline_months, 2) if deadline_months > 0 else remaining
+            plan_type        = "deadline"
 
     if months_required is None:
+        plan_type = "capacity"
         if monthly_capacity > 0:
             months_required  = round(remaining / monthly_capacity, 1) if remaining > 0 else 0
             required_monthly = monthly_capacity
-        # else: leave as None (Hard path)
+        # else: leave as None (Hard path, no capacity to project from)
 
     monthly_savings_needed = required_monthly if required_monthly is not None else monthly_capacity
 
-    # ── 7. Build phases (one per month, max 12) ───────────────────
-    #
-    # Each phase maps to exactly one calendar month so the titles
-    # read "Month 1", "Month 2", … as required.
-    num_phases = min(int(months_required or 6), 12)
-    num_phases = max(num_phases, 1)     # at least one phase always
+    capacity_gap    = None
+    deadline_status = "no_deadline"
+    if plan_type == "deadline":
+        capacity_gap    = round(required_monthly - monthly_capacity, 2)
+        deadline_status = "at_risk" if capacity_gap > 0 else "on_track"
 
-    save_per_phase = remaining / num_phases if num_phases else remaining
+    # ── 7. Build phases — one per REQUIRED month, no artificial cap ──
+    # Each phase maps to exactly one calendar month so the titles
+    # read "Month 1", "Month 2", … and the count always matches
+    # months_required (the true timeline, deadline- or capacity-driven).
+    num_phases       = max(int(round(months_required)) if months_required else 6, 1)
+    phases_truncated = num_phases > _MAX_GENERATED_PHASES
+    num_phases_gen   = min(num_phases, _MAX_GENERATED_PHASES)
+
+    save_per_phase = remaining / num_phases_gen if num_phases_gen else remaining
 
     # Action templates — rotate through them to avoid repetition
     _ACTION_POOL = [
@@ -999,7 +682,7 @@ def generate_roadmap():
     ]
 
     phases = []
-    for i in range(num_phases):
+    for i in range(num_phases_gen):
         milestone = min(saved + save_per_phase * (i + 1), target)
         action_set = _ACTION_POOL[i % len(_ACTION_POOL)]
         tip        = _TIPS[i % len(_TIPS)]
@@ -1011,6 +694,14 @@ def generate_roadmap():
             "actions":        action_set,
             "tip":            tip,
         })
+
+    # Quarterly grouping only kicks in for long timelines — never
+    # replaces `phases`, just gives the UI a coarser view to render.
+    phase_view_mode = "quarterly" if len(phases) > 12 else "monthly"
+    phase_view = {
+        "mode":   phase_view_mode,
+        "groups": _group_phases_quarterly(phases) if phase_view_mode == "quarterly" else None,
+    }
 
     # ── 8. Quick wins ─────────────────────────────────────────────
     quick_wins = [
@@ -1039,10 +730,14 @@ def generate_roadmap():
         risks.append(
             f"Expenses rose {expense_change:.0f}% vs last month — review {top_cat} category"
         )
-    if required_monthly and monthly_capacity > 0 and required_monthly > monthly_capacity:
+    if volatility > monthly_capacity * 0.4:
+        risks.append("Irregular monthly expenses detected — build a buffer before aggressive saving")
+
+    if deadline_status == "at_risk":
         risks.append(
-            f"Required ₹{int(required_monthly):,}/month exceeds current capacity "
-            f"₹{int(monthly_capacity):,} — deadline may be missed without lifestyle cuts"
+            f"Target timeline: {num_phases} months — required ₹{int(required_monthly):,}/month "
+            f"exceeds current capacity ₹{int(monthly_capacity):,}/month (gap ₹{int(capacity_gap):,}). "
+            "Deadline is at risk — the timeline is NOT being auto-extended to match capacity."
         )
     if volatility > monthly_capacity * 0.4:
         risks.append("Irregular monthly expenses detected — build a buffer before aggressive saving")
@@ -1052,7 +747,7 @@ def generate_roadmap():
 
     # ── 10. Motivation + summary ──────────────────────────────────
     months_display = (
-        f"{months_required:.0f} month{'s' if months_required != 1 else ''}"
+        f"{num_phases} month{'s' if num_phases != 1 else ''}"
         if months_required else "some time"
     )
 
@@ -1067,21 +762,198 @@ def generate_roadmap():
         f"'{goal['name']}' (₹{int(target):,}) in about {months_display}."
     )
 
-    return jsonify({
+    return {
         # ── Required fields (Flutter + web) ──────────────────────
-        "difficulty":             difficulty,
-        "months_required":        months_required,
-        "monthly_savings_needed": round(monthly_savings_needed, 2),
-        "remaining_amount":       round(remaining, 2),
-        "phases":                 phases,
-        "quick_wins":             quick_wins,
-        "risks":                  risks,
-        "motivation":             motivation,
+        "difficulty":               difficulty,
+        "months_required":          months_required,
+        "monthly_savings_needed":   round(monthly_savings_needed, 2),
+        "remaining_amount":         round(remaining, 2),
+        "phases":                   phases,
+        "phases_truncated":         phases_truncated,
+        "phase_view":               phase_view,
+        "quick_wins":               quick_wins,
+        "risks":                    risks,
+        "motivation":               motivation,
         # ── Extra fields used by roadmap_screen.dart ─────────────
-        "summary":                summary,
-        "strategy":               (
-            "aggressive"  if required_monthly and required_monthly > monthly_capacity
+        "summary":                  summary,
+        "strategy": (
+            "aggressive"   if deadline_status == "at_risk"
             else "conservative" if budget_used_pct > 80
             else "balanced"
         ),
-    })
+        # ── New: deadline vs. capacity, kept explicitly separate ──
+        "plan_type":                plan_type,             # "deadline" | "capacity"
+        "deadline_status":          deadline_status,        # "on_track" | "at_risk" | "no_deadline"
+        "current_monthly_capacity": round(monthly_capacity, 2),
+        "capacity_gap":             capacity_gap,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────
+# POST /generate-roadmap
+# Unified backend roadmap generator used by both the Flutter app
+# and the web dashboard.  No external AI API required.
+# ─────────────────────────────────────────────────────────────────
+
+@goals_bp.route("/generate-roadmap", methods=["POST"])
+@login_required
+def generate_roadmap():
+    """Generate a personalised savings roadmap for a single goal.
+
+    Request body: { "goal_id": <int> }
+    See `_compute_roadmap` for the full response shape.
+    """
+    user_id = session["user_id"]
+    data    = request.get_json(silent=True) or {}
+
+    goal_id_raw = data.get("goal_id")
+    if goal_id_raw is None:
+        return jsonify({"error": "goal_id is required"}), 400
+
+    try:
+        goal_id = int(goal_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "goal_id must be an integer"}), 400
+
+    conn = get_db()
+    try:
+        goal_row = conn.execute(
+            """
+            SELECT id, name, target_amount, saved_amount, category, target_date
+            FROM   goals
+            WHERE  id = %s AND user_id = %s
+            """,
+            (goal_id, user_id),
+        ).fetchone()
+
+        if not goal_row:
+            return jsonify({"error": "Goal not found"}), 404
+
+        metrics = _fetch_full_metrics(conn, user_id)
+        avg_income, avg_expense, volatility = _get_monthly_cash_flow(conn, user_id)
+    finally:
+        conn.close()
+
+    roadmap = _compute_roadmap(dict(goal_row), metrics, avg_income, avg_expense, volatility)
+    return jsonify(roadmap)
+
+
+# ─────────────────────────────────────────────────────────────────
+# POST /explain-roadmap-ai
+#
+# OPTIONAL, user-triggered only (an "Explain with AI" button — never
+# called automatically on page load/refresh/goal-change). Recomputes
+# the deterministic roadmap itself (never trusts client-sent numbers),
+# sends Gemini only the derived summary fields, and asks it to explain
+# — not recalculate — the plan. If Gemini is unavailable or returns
+# something malformed, the roadmap keeps working; only this optional
+# explanation is affected.
+# ─────────────────────────────────────────────────────────────────
+
+@goals_bp.route("/explain-roadmap-ai", methods=["POST"])
+@login_required
+def explain_roadmap_ai():
+    user_id = session["user_id"]
+    data    = request.get_json(silent=True) or {}
+
+    goal_id_raw = data.get("goal_id")
+    if goal_id_raw is None:
+        return jsonify({"error": "goal_id is required"}), 400
+
+    try:
+        goal_id = int(goal_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "goal_id must be an integer"}), 400
+
+    conn = get_db()
+    try:
+        goal_row = conn.execute(
+            """
+            SELECT id, name, target_amount, saved_amount, category, target_date
+            FROM   goals
+            WHERE  id = %s AND user_id = %s
+            """,
+            (goal_id, user_id),
+        ).fetchone()
+
+        if not goal_row:
+            return jsonify({"error": "Goal not found"}), 404
+
+        metrics = _fetch_full_metrics(conn, user_id)
+        avg_income, avg_expense, volatility = _get_monthly_cash_flow(conn, user_id)
+
+        tx_amounts = conn.execute(
+            "SELECT amount FROM transactions WHERE user_id=%s AND type='expense' ORDER BY date ASC",
+            (user_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    goal    = dict(goal_row)
+    roadmap = _compute_roadmap(goal, metrics, avg_income, avg_expense, volatility)
+
+    anomaly_warning = None
+    try:
+        amounts   = [float(r["amount"]) for r in tx_amounts]
+        anomalies = detect_anomalies(amounts) if len(amounts) > 5 else []
+        if len(anomalies) >= 2:
+            anomaly_warning = f"Irregular spending detected in {len(anomalies)} recent transactions."
+    except Exception:
+        pass
+
+    # ── Minimal payload sent to Gemini — derived fields only ──────
+    explain_payload = {
+        "goal_name":                goal["name"],
+        "target_amount":            float(goal["target_amount"] or 0),
+        "saved_amount":             float(goal["saved_amount"] or 0),
+        "remaining_amount":         roadmap["remaining_amount"],
+        "target_date":              (goal.get("target_date").isoformat()
+                                      if hasattr(goal.get("target_date"), "isoformat")
+                                      else goal.get("target_date")),
+        "plan_type":                roadmap["plan_type"],
+        "months_required":          roadmap["months_required"],
+        "required_monthly_saving":  roadmap["monthly_savings_needed"],
+        "current_monthly_capacity": roadmap["current_monthly_capacity"],
+        "capacity_gap":             roadmap["capacity_gap"],
+        "difficulty":               roadmap["difficulty"],
+        "deadline_status":          roadmap["deadline_status"],
+        "savings_rate":             metrics.get("savings_rate"),
+        "budget_used_pct":          metrics.get("budget_used_pct"),
+        "top_spending_category":    metrics.get("top_cat_name"),
+        "anomaly_warning":          anomaly_warning,
+        "existing_roadmap_actions": [a for p in roadmap["phases"][:3] for a in p["actions"]],
+    }
+
+    cache_key = (
+        user_id, goal_id,
+        hashlib.sha256(json.dumps(explain_payload, sort_keys=True, default=str).encode()).hexdigest(),
+    )
+
+    cached = _ROADMAP_EXPLANATION_CACHE.get(cache_key)
+    if cached is not None:
+        return jsonify({**cached, "cached": True})
+
+    try:
+        explanation = gemini_service.generate_json(_GEMINI_SYSTEM_INSTRUCTION, explain_payload)
+
+        # Defensive: never let AI-returned numbers override backend truth —
+        # only the qualitative fields are used, no numeric field is accepted.
+        result = {
+            "summary":  str(explanation.get("summary",  ""))[:1000],
+            "why":      str(explanation.get("why",      ""))[:1000],
+            "priority": str(explanation.get("priority", ""))[:300],
+            "guidance": [str(g)[:300] for g in (explanation.get("guidance") or [])][:6],
+            "available": True,
+        }
+    except ValueError as exc:
+        logger.exception(
+            "AI roadmap explanation failed for goal %s",
+            goal_id,
+        )
+        return jsonify({
+            "available": False,
+            "message": str(exc),
+        }), 500
+
+    _ROADMAP_EXPLANATION_CACHE[cache_key] = result
+    return jsonify({**result, "cached": False})
