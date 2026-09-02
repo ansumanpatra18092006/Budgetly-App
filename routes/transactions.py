@@ -940,11 +940,47 @@ def _extract_utr(block: str) -> str | None:
 
 
 def _format_db_timestamp(value):
+    """Return database timestamps in a stable ISO-8601 string for the Flutter client."""
     if value is None:
         return None
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
+
+
+def _format_db_date(value):
+    """Return DATE/DATETIME database values as YYYY-MM-DD, never Flask's RFC-1123 format."""
+    if value is None:
+        return None
+    if hasattr(value, "date") and not isinstance(value, type(value).mro()[-1]):
+        # Kept intentionally conservative; datetime/date both expose isoformat.
+        pass
+    if hasattr(value, "isoformat"):
+        raw = value.isoformat()
+        return raw[:10]
+    text = str(value).strip()
+    # Handle legacy Flask-style or other textual dates defensively.
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return text[:10] if len(text) >= 10 else text
+
+
+def _transaction_response(row):
+    """Serialize a transaction row explicitly so date/time never become Flask RFC-1123 strings."""
+    return {
+        "id": row.get("id"),
+        "description": row.get("description") or "",
+        "amount": row.get("amount", 0),
+        "type": row.get("type") or "expense",
+        "category": row.get("category") or "Misc",
+        "date": _format_db_date(row.get("date")) or "",
+        "transaction_timestamp": _format_db_timestamp(row.get("transaction_timestamp")),
+        "reference_id": row.get("reference_id"),
+        "utr": row.get("utr"),
+        "source": row.get("source"),
+        "status": row.get("status") or "completed",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1044,7 +1080,7 @@ def get_transactions():
     finally:
         conn.close()
 
-    return jsonify({"transactions": [dict(r) for r in rows]})
+    return jsonify({"transactions": [_transaction_response(r) for r in rows]})
 
 
 @transactions_bp.route("/delete-transaction/<int:tid>", methods=["DELETE"])
