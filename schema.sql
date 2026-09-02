@@ -26,6 +26,10 @@ CREATE TABLE public.transactions (
   category text,
   date date,
   status text DEFAULT 'completed'::text,
+  transaction_timestamp timestamp without time zone,
+  reference_id text,
+  utr text,
+  source text,
   CONSTRAINT transactions_pkey PRIMARY KEY (id),
   CONSTRAINT transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
@@ -78,3 +82,8 @@ CREATE TABLE public.loan_applications (
   CONSTRAINT loan_applications_borrower_id_fkey FOREIGN KEY (borrower_id) REFERENCES public.users(id),
   CONSTRAINT loan_applications_lender_id_fkey FOREIGN KEY (lender_id) REFERENCES public.users(id)
 );
+CREATE INDEX idx_transactions_user_timestamp
+  ON public.transactions (user_id, transaction_timestamp DESC);
+CREATE UNIQUE INDEX idx_transactions_user_reference
+  ON public.transactions (user_id, reference_id)
+  WHERE reference_id IS NOT NULL AND reference_id <> '';

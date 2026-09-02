@@ -82,6 +82,7 @@ function initLenderWorkspace() {
 
     initLwNav();
     initLwConfirmModal();
+    initLwRiskAssistant();
     form.addEventListener('submit', handleLwSubmit);
 
     const resetBtn = document.getElementById('lwResetBtn');
@@ -216,6 +217,15 @@ let lwExplainInFlight = false;
 let lwAnomalyInFlight = false;
 
 function lwSetCurrentApplication(app) {
+    // PHASE 9 — the Risk Analyst panel is scoped to one application's
+    // evidence. Any time currentApplication is about to be replaced
+    // (a different application opened, or cleared entirely), close the
+    // panel and drop its history first so a stale answer can never be
+    // shown against the newly selected application.
+    lwCloseRiskAssistant();
+    lwRaMessages = [];
+    lwRaMessagesAppId = null;
+
     currentApplication = app ? {
         application_id: app.application_id,
         borrower: app.borrower || null,
@@ -281,6 +291,8 @@ function lwUpdateContextStrip() {
         if (el) el.textContent = value;
     };
 
+    const raBtn = document.getElementById('lwAskRiskAnalystBtn');
+
     if (!currentApplication) {
         strip.classList.remove('active');
         setText('lwContextApplicant', '—');
@@ -288,6 +300,7 @@ function lwUpdateContextStrip() {
         setText('lwContextPurpose', '—');
         setText('lwContextAmount', '—');
         setText('lwContextStatus', '—');
+        if (raBtn) raBtn.style.display = 'none';
         return;
     }
 
@@ -300,6 +313,12 @@ function lwUpdateContextStrip() {
     setText('lwContextAmount', lwFormatModelUnits(currentApplication.loan_amount));
     setText('lwContextStatus', currentApplication.status || '—');
     strip.classList.add('active');
+
+    // PHASE 9 — the trigger only ever appears once this application has
+    // a PERSISTED assessment_result (POST .../assess). No persisted
+    // assessment means the risk-assistant endpoint would just 422, so
+    // the button stays hidden rather than surfacing a dead end.
+    if (raBtn) raBtn.style.display = currentApplication.assessment_result ? '' : 'none';
 }
 
 function lwRiskGaugeHtml(pct, pctLabel, riskClass, riskLevel) {
@@ -2625,6 +2644,284 @@ function renderLwResponsibleAi(data) {
             ${fairnessHtml}
         </div>
     `;
+}
+
+/* =================================================================
+   AI RISK ANALYST (PHASE 9)
+
+   Frontend controller for the read-only Q&A panel over an
+   application's ALREADY-PERSISTED assessment_result. This file never
+   computes a risk score or a decision — every answer comes verbatim
+   from POST /lender/risk-assistant (services/risk_assistant_service.py),
+   which itself only explains existing, already-verified evidence.
+
+   Scoping rules enforced here:
+     - The trigger is only shown once currentApplication.assessment_result
+       is present (see lwUpdateContextStrip).
+     - lwSetCurrentApplication() always closes this panel and drops its
+       history BEFORE currentApplication is reassigned, so a different
+       (or cleared) application can never inherit a stale conversation.
+     - Every request sent from this panel is scoped to
+       currentApplication.application_id, re-read at send time — never
+       cached from when the panel was opened.
+     - No request is ever fired automatically; the panel only calls the
+       backend in response to an explicit lender click.
+================================================================== */
+
+const LW_RA_SUGGESTED_QUESTIONS = [
+    'Why is this applicant risky?',
+    'What is the strongest factor driving this risk?',
+    'What are the strongest risk factors?',
+    'Can this borrower afford the requested loan?',
+    'What evidence supports this assessment?',
+    'What should I verify before approving?'
+];
+
+let lwRaInFlight = false;
+let lwRaMessages = [];          // [{ role: 'question'|'answer'|'error', text }]
+let lwRaMessagesAppId = null;   // application_id these messages belong to
+
+function initLwRiskAssistant() {
+    const trigger = document.getElementById('lwAskRiskAnalystBtn');
+    const closeBtn = document.getElementById('lwRaCloseBtn');
+    const overlay = document.getElementById('lwRiskAssistantModal');
+    const askBtn = document.getElementById('lwRaAskBtn');
+    const input = document.getElementById('lwRaQuestionInput');
+
+    if (trigger) trigger.addEventListener('click', lwOpenRiskAssistant);
+    if (closeBtn) closeBtn.addEventListener('click', lwCloseRiskAssistant);
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) lwCloseRiskAssistant();
+        });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay && overlay.style.display !== 'none') {
+            lwCloseRiskAssistant();
+        }
+    });
+
+    if (askBtn) askBtn.addEventListener('click', () => lwAskRiskAssistant());
+    if (input) {
+        // Enter sends; Shift+Enter inserts a newline, matching standard
+        // chat-composer behavior.
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                lwAskRiskAssistant();
+            }
+        });
+        input.addEventListener('input', () => {
+            // Auto-grow up to a small cap so a long question stays
+            // readable without the composer taking over the panel.
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
+    }
+}
+
+function lwOpenRiskAssistant() {
+    // Guard against the trigger being clicked in a state it shouldn't
+    // even be visible in (no application, or no persisted assessment).
+    if (!currentApplication || !currentApplication.assessment_result) return;
+
+    const overlay = document.getElementById('lwRiskAssistantModal');
+    if (!overlay) return;
+
+    // A fresh application (never opened in this panel before) starts
+    // with a clean transcript; re-opening the SAME application keeps
+    // its in-memory history for this session.
+    if (lwRaMessagesAppId !== currentApplication.application_id) {
+        lwRaMessages = [];
+        lwRaMessagesAppId = currentApplication.application_id;
+    }
+
+    const label = document.getElementById('lwRaAppLabel');
+    if (label) {
+        const name = currentApplication.borrower && currentApplication.borrower.name;
+        label.textContent = `Application #${currentApplication.application_id}` + (name ? ` — ${name}` : '');
+    }
+
+    lwRenderRaSuggested();
+    lwRenderRaLog();
+
+    const errBox = document.getElementById('lwRaComposerError');
+    if (errBox) { errBox.textContent = ''; errBox.classList.add('hidden'); }
+
+    overlay.style.display = 'flex';
+    const panel = overlay.querySelector('.lw-ra-panel');
+    if (panel) panel.focus();
+
+    const input = document.getElementById('lwRaQuestionInput');
+    if (input) input.focus();
+}
+
+function lwCloseRiskAssistant() {
+    const overlay = document.getElementById('lwRiskAssistantModal');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function lwRenderRaSuggested() {
+    const mount = document.getElementById('lwRaSuggested');
+    if (!mount) return;
+    mount.innerHTML = LW_RA_SUGGESTED_QUESTIONS.map(q =>
+        `<button type="button" class="lw-ra-chip" data-q="${escapeLwHtml(q)}">${escapeLwHtml(q)}</button>`
+    ).join('');
+    mount.querySelectorAll('.lw-ra-chip').forEach(btn => {
+        btn.addEventListener('click', () => lwAskRiskAssistant(btn.getAttribute('data-q')));
+    });
+}
+
+function lwRenderRaLog() {
+    const log = document.getElementById('lwRaLog');
+    if (!log) return;
+
+    if (!lwRaMessages.length) {
+        log.innerHTML = `
+            <div class="lw-ra-empty">
+                <i class="fa-solid fa-magnifying-glass-chart"></i>
+                <div>Ask a question about this application's assessment, or pick one above.</div>
+            </div>`;
+        return;
+    }
+
+    log.innerHTML = lwRaMessages.map(m => {
+        if (m.role === 'question') {
+            return `<div class="lw-ra-msg lw-ra-msg-question"><div class="lw-ra-bubble">${escapeLwHtml(m.text)}</div></div>`;
+        }
+        if (m.role === 'loading') {
+            return `
+                <div class="lw-ra-msg lw-ra-msg-answer" id="lwRaLoadingMsg">
+                    <div class="lw-ra-bubble lw-ra-loading">
+                        <span class="lw-ra-dot"></span><span class="lw-ra-dot"></span><span class="lw-ra-dot"></span>
+                    </div>
+                </div>`;
+        }
+        if (m.role === 'error') {
+            return `
+                <div class="lw-ra-msg lw-ra-msg-answer">
+                    <div class="lw-ra-bubble lw-ra-bubble-error">
+                        <i class="fa-solid fa-circle-exclamation"></i> ${escapeLwHtml(m.text)}
+                    </div>
+                </div>`;
+        }
+        return `<div class="lw-ra-msg lw-ra-msg-answer"><div class="lw-ra-bubble"><i class="fa-solid fa-user-shield lw-ra-bubble-icon"></i><div class="lw-ra-answer-content">${lwRenderRaMarkdown(m.text)}</div></div></div>`;
+    }).join('');
+
+    log.scrollTop = log.scrollHeight;
+}
+
+// Renders a Risk Analyst answer as safe, compact HTML.
+//
+// SAFETY: escapeLwHtml() runs FIRST on the raw text, so any characters
+// the AI response contains are neutralized before any markup exists.
+// Only the literal <p>/<ul>/<li>/<strong> tags added below (by us, not
+// by the AI text) ever end up in the DOM — the AI's own text can never
+// introduce a tag, attribute, or script.
+function lwRenderRaMarkdown(text) {
+    const escaped = escapeLwHtml(text);
+
+    // **bold** -> <strong>bold</strong>
+    const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    const lines = withBold.split(/\r?\n/);
+    const blocks = [];
+    let currentList = null;
+
+    const flushList = () => {
+        if (currentList && currentList.length) {
+            blocks.push(`<ul class="lw-ra-list">${currentList.map(li => `<li>${li}</li>`).join('')}</ul>`);
+        }
+        currentList = null;
+    };
+
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        const bulletMatch = trimmed.match(/^-\s+(.+)$/);
+        if (bulletMatch) {
+            if (!currentList) currentList = [];
+            currentList.push(bulletMatch[1]);
+            return;
+        }
+        flushList();
+        if (trimmed) blocks.push(`<p class="lw-ra-p">${trimmed}</p>`);
+    });
+    flushList();
+
+    return blocks.join('') || escaped;
+}
+
+async function lwAskRiskAssistant(presetQuestion) {
+    if (lwRaInFlight) return;
+    if (!currentApplication || !currentApplication.assessment_result) return;
+
+    // Re-read the scoped application id at send time (not captured
+    // earlier) so a question can never be attributed to whichever
+    // application was current when the panel was first opened.
+    const applicationId = currentApplication.application_id;
+
+    const input = document.getElementById('lwRaQuestionInput');
+    const errBox = document.getElementById('lwRaComposerError');
+    const askBtn = document.getElementById('lwRaAskBtn');
+
+    const question = (typeof presetQuestion === 'string' ? presetQuestion : (input ? input.value : '')).trim();
+
+    if (errBox) { errBox.textContent = ''; errBox.classList.add('hidden'); }
+
+    if (!question) {
+        if (errBox) { errBox.textContent = 'Enter a question first.'; errBox.classList.remove('hidden'); }
+        return;
+    }
+    if (question.length > 500) {
+        if (errBox) { errBox.textContent = 'Question is too long (500 characters max).'; errBox.classList.remove('hidden'); }
+        return;
+    }
+
+    lwRaInFlight = true;
+    if (askBtn) askBtn.disabled = true;
+    if (input) { input.value = ''; input.style.height = 'auto'; }
+
+    lwRaMessages.push({ role: 'question', text: question });
+    lwRaMessages.push({ role: 'loading' });
+    lwRenderRaLog();
+
+    let data = null;
+    let networkError = false;
+    try {
+        const res = await lwRequest('/lender/risk-assistant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ application_id: applicationId, question })
+        });
+        data = await res.json().catch(() => null);
+    } catch (e) {
+        networkError = true;
+    }
+
+    // The application (or the whole panel) may have changed while this
+    // request was in flight. If so, drop the response silently instead
+    // of grafting an answer onto a conversation it no longer belongs to.
+    if (lwRaMessagesAppId !== applicationId) {
+        lwRaInFlight = false;
+        if (askBtn) askBtn.disabled = false;
+        return;
+    }
+
+    // Replace the loading placeholder with the real result.
+    lwRaMessages = lwRaMessages.filter(m => m.role !== 'loading');
+
+    if (networkError || !data) {
+        lwRaMessages.push({ role: 'error', text: 'The AI risk analyst is temporarily unavailable. Please try again.' });
+    } else if (data.success && typeof data.answer === 'string' && data.answer.trim()) {
+        lwRaMessages.push({ role: 'answer', text: data.answer.trim() });
+    } else {
+        lwRaMessages.push({ role: 'error', text: (data && data.error) || 'The AI risk analyst returned an unexpected response.' });
+    }
+
+    lwRenderRaLog();
+    lwRaInFlight = false;
+    if (askBtn) askBtn.disabled = false;
+    if (input) input.focus();
 }
 
 /* =================================================================

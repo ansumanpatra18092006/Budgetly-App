@@ -217,12 +217,13 @@ BANK_ARTIFACT_PATTERNS = [
 # ---------------------------------------------------------------------------
 
 _WS_RE          = re.compile(r"\s+")
+_TIME_RE        = re.compile(r"\b(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)\b", re.IGNORECASE)
 _CAMEL_RE       = re.compile(r"([a-z])([A-Z])")
 _AMOUNT_RE      = re.compile(r"₹\s?([\d,]+\.?\d*)")
 _AMOUNT_SIGN_RE = re.compile(r"₹\s?([\d,]+\.?\d*)\s*(?:CR|DR)?", re.IGNORECASE)
 
 # Google Pay patterns
-_GPY_TXID_RE    = re.compile(r"UPITransactionID:\d+")
+_GPY_TXID_RE    = re.compile(r"(?=UPITransactionID:\d+)")
 _GPY_PAID_RE    = re.compile(r"Paidto(.+?)(?=₹|UPI|$)", re.DOTALL)
 _GPY_RECV_RE    = re.compile(r"Receivedfrom(.+?)(?=₹|UPI|$)", re.DOTALL)
 
@@ -518,6 +519,10 @@ def _parse_gpay_blocks(text: str) -> list[dict]:
             "amount":      amount,
             "type":        t_type,
             "date":        date,
+            "time":        _extract_time(block),
+            "transaction_timestamp": _build_timestamp(date, _extract_time(block)),
+            "reference_id": _extract_reference_id(block),
+            "utr": _extract_utr(block),
         })
 
     return results
@@ -591,11 +596,16 @@ def _parse_phonepe_blocks(text: str) -> list[dict]:
         if not amount:
             continue
 
+        parsed_time = _extract_time(block)
         results.append({
             "description": description,
             "amount": amount,
             "type": t_type,
             "date": date,
+            "time": parsed_time,
+            "transaction_timestamp": _build_timestamp(date, parsed_time),
+            "reference_id": _extract_reference_id(block),
+            "utr": _extract_utr(block),
         })
 
     return results
@@ -612,13 +622,18 @@ def parse_upi_statement(text: str, user_id=None) -> list[dict]:
     Auto-detects the statement format and delegates to the appropriate
     format-specific parser.
 
-    Returns a list of transaction dicts:
+    Returns transaction dicts with preserved source time/identity when available:
         {
             "description": str,
-            "amount":      float,
-            "type":        "income" | "expense",
-            "category":    str,
-            "date":        "YYYY-MM-DD",
+            "amount": float,
+            "type": "income" | "expense",
+            "category": str,
+            "date": "YYYY-MM-DD",
+            "time": "HH:MM:SS" | None,
+            "transaction_timestamp": "YYYY-MM-DDTHH:MM:SS" | None,
+            "reference_id": str | None,
+            "utr": str | None,
+            "source": str | None,
         }
     """
     if not text or not text.strip():
@@ -647,10 +662,8 @@ def parse_upi_statement(text: str, user_id=None) -> list[dict]:
     for tx in raw_txns:
         # Deduplication key
         dedup_key = (
-            tx["date"],
-            round(tx["amount"], 2),
-            tx["type"],
-            normalize_text(tx["description"]),
+            tx.get("reference_id") or tx.get("utr") or
+            (tx.get("date"), tx.get("transaction_timestamp"), round(tx["amount"], 2), tx["type"], normalize_text(tx["description"]))
         )
         if dedup_key in seen:
             _pdebug("Duplicate skipped: %s", dedup_key)
@@ -674,6 +687,11 @@ def parse_upi_statement(text: str, user_id=None) -> list[dict]:
             "type":        tx["type"],
             "category":    category,
             "date":        tx["date"],
+            "time":        tx.get("time"),
+            "transaction_timestamp": tx.get("transaction_timestamp"),
+            "reference_id": tx.get("reference_id"),
+            "utr": tx.get("utr"),
+            "source": fmt.title(),
         })
 
     logger.info(
@@ -852,6 +870,84 @@ def _db_execute(fn):
 
 
 # ---------------------------------------------------------------------------
+# Transaction metadata helpers
+# ---------------------------------------------------------------------------
+
+def _parse_transaction_timestamp(raw):
+    """Parse an ISO/local timestamp without inventing a time for historical imports."""
+    if raw is None or str(raw).strip() == "":
+        return None
+    value = str(raw).strip()
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # The app and statement parsers send local timestamps without an
+        # offset. For offset-aware values, preserve the wall-clock components
+        # rather than silently converting to the server's UTC timezone.
+        if parsed.tzinfo is not None:
+            parsed = parsed.replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %I:%M:%S %p", "%Y-%m-%d %I:%M %p"):
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def _extract_time(block: str) -> str | None:
+    m = _TIME_RE.search(block or "")
+    if not m:
+        return None
+    raw = re.sub(r"\s+", "", m.group(1)).upper()
+    for fmt in ("%I:%M:%S%p", "%I:%M%p", "%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%H:%M:%S")
+        except ValueError:
+            continue
+    return None
+
+
+def _build_timestamp(date_str: str | None, time_str: str | None) -> str | None:
+    if not date_str or not time_str:
+        return None
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        t = datetime.strptime(time_str, "%H:%M:%S").time()
+        return datetime.combine(d, t).isoformat()
+    except ValueError:
+        return None
+
+
+def _extract_reference_id(block: str) -> str | None:
+    patterns = (
+        r"(?i)UPI\s+Ref\s+No\.?\s*[:\-]?\s*([A-Z0-9]+)",
+        r"(?i)Transaction\s+ID\s*[:\-]?\s*([A-Z0-9]+)",
+        r"(?i)Txn\s+ID\s*[:\-]?\s*([A-Z0-9]+)",
+        r"(?i)UPITransactionID\s*:\s*([A-Z0-9]+)",
+        r"(?i)UTR\s+No\.?\s*[:\-]?\s*([A-Z0-9]+)",
+    )
+    for pattern in patterns:
+        m = re.search(pattern, block or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_utr(block: str) -> str | None:
+    m = re.search(r"(?i)UTR\s+No\.?\s*[:\-]?\s*([A-Z0-9]+)", block or "")
+    return m.group(1) if m else None
+
+
+def _format_db_timestamp(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+# ---------------------------------------------------------------------------
 # Routes — Transaction CRUD
 # ---------------------------------------------------------------------------
 
@@ -869,6 +965,12 @@ def add_transaction():
     t_type      = (data.get("type") or "expense").strip().lower()
     category    = (data.get("category") or "").strip()
     date        = (data.get("date") or "").strip() or datetime.today().strftime("%Y-%m-%d")
+    transaction_timestamp = _parse_transaction_timestamp(data.get("transaction_timestamp") or data.get("timestamp"))
+    reference_id = (data.get("reference_id") or data.get("referenceId") or "").strip()[:150] or None
+    utr = (data.get("utr") or "").strip()[:100] or None
+    source = (data.get("source") or "FinTrust").strip()[:100] or "FinTrust"
+    if transaction_timestamp is None and date == datetime.today().strftime("%Y-%m-%d"):
+        transaction_timestamp = datetime.now().replace(microsecond=0)
 
     if not description:
         return jsonify({"success": False, "error": "Description is required."}), 400
@@ -889,16 +991,25 @@ def add_transaction():
         category = "Misc"
 
     def _insert(conn):
-        cur = conn.execute(
-            "INSERT INTO transactions (user_id, description, amount, type, category, date) "
-            "VALUES (%s, %s, %s, %s, %s, %s) "
-            "RETURNING id",
-            (user_id, description, amount, t_type, category, date)
-        )
-        return cur.fetchone()["id"]
+        if reference_id:
+            existing = conn.execute(
+                "SELECT id FROM transactions WHERE user_id=%s AND reference_id=%s LIMIT 1",
+                (user_id, reference_id)
+            ).fetchone()
+            if existing:
+                return existing["id"], True
 
-    tid = _db_execute(_insert)
-    return jsonify({"success": True, "id": tid})
+        cur = conn.execute(
+            "INSERT INTO transactions "
+            "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "RETURNING id",
+            (user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source)
+        )
+        return cur.fetchone()["id"], False
+
+    tid, duplicate = _db_execute(_insert)
+    return jsonify({"success": True, "id": tid, "duplicate": duplicate})
 
 
 @transactions_bp.route("/get-transactions")
@@ -925,7 +1036,7 @@ def get_transactions():
     if search:
         query += " AND LOWER(description) LIKE %s"; params.append(f"%{search.lower()}%")
 
-    query += " ORDER BY date DESC, id DESC"
+    query += " ORDER BY transaction_timestamp DESC NULLS LAST, date DESC, id DESC"
 
     conn = get_db()
     try:
@@ -966,6 +1077,12 @@ def update_transaction(tid):
     category    = (data.get("category") or "Misc").strip()
     t_type      = (data.get("type") or "expense").strip().lower()
     date        = (data.get("date") or "").strip() or datetime.today().strftime("%Y-%m-%d")
+    transaction_timestamp = _parse_transaction_timestamp(data.get("transaction_timestamp") or data.get("timestamp"))
+    reference_id = (data.get("reference_id") or data.get("referenceId") or "").strip()[:150] or None
+    utr = (data.get("utr") or "").strip()[:100] or None
+    source = (data.get("source") or "").strip()[:100] or None
+    if transaction_timestamp is None and date == datetime.today().strftime("%Y-%m-%d"):
+        transaction_timestamp = datetime.now().replace(microsecond=0)
 
     if not description:
         return jsonify({"success": False, "error": "Description is required."}), 400
@@ -979,9 +1096,10 @@ def update_transaction(tid):
     def _update(conn):
         cur = conn.execute(
             "UPDATE transactions "
-            "SET description=%s, amount=%s, category=%s, type=%s, date=%s "
+            "SET description=%s, amount=%s, category=%s, type=%s, date=%s, "
+            "transaction_timestamp=%s, reference_id=%s, utr=%s, source=%s "
             "WHERE id=%s AND user_id=%s",
-            (description, amount, category, t_type, date, tid, user_id)
+            (description, amount, category, t_type, date, transaction_timestamp, reference_id, utr, source, tid, user_id)
         )
         if cur.rowcount == 0:
             return False
@@ -1037,8 +1155,8 @@ def export_transactions():
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT description, amount, type, category, date "
-            "FROM transactions WHERE user_id = %s ORDER BY date DESC, id DESC",
+            "SELECT description, amount, type, category, date, transaction_timestamp, reference_id, utr, source "
+            "FROM transactions WHERE user_id = %s ORDER BY transaction_timestamp DESC NULLS LAST, date DESC, id DESC",
             (session["user_id"],)
         ).fetchall()
     finally:
@@ -1046,9 +1164,11 @@ def export_transactions():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["description", "amount", "type", "category", "date"])
+    writer.writerow(["description", "amount", "type", "category", "date", "time", "transaction_timestamp", "reference_id", "utr", "source"])
     for r in rows:
-        writer.writerow([r["description"], r["amount"], r["type"], r["category"] or "Misc", r["date"]])
+        ts = _format_db_timestamp(r.get("transaction_timestamp"))
+        time_value = ts[11:19] if ts and len(ts) >= 19 else ""
+        writer.writerow([r["description"], r["amount"], r["type"], r["category"] or "Misc", r["date"], time_value, ts or "", r.get("reference_id") or "", r.get("utr") or "", r.get("source") or ""])
 
     # UTF-8 BOM so Excel opens it correctly
     csv_bytes = ("\ufeff" + output.getvalue()).encode("utf-8")
@@ -1089,6 +1209,13 @@ def import_transactions():
                     t_type = "expense"
                 category    = (row.get("category") or "").strip()
                 date        = (row.get("date") or "").strip() or datetime.today().strftime("%Y-%m-%d")
+                transaction_timestamp = _parse_transaction_timestamp(row.get("transaction_timestamp") or row.get("timestamp"))
+                if transaction_timestamp is None:
+                    csv_time = (row.get("time") or "").strip()
+                    transaction_timestamp = _parse_transaction_timestamp(f"{date} {csv_time}") if csv_time else None
+                reference_id = (row.get("reference_id") or row.get("referenceId") or "").strip()[:150] or None
+                utr = (row.get("utr") or "").strip()[:100] or None
+                source = (row.get("source") or "CSV import").strip()[:100]
 
                 if not description or amount <= 0:
                     continue
@@ -1104,9 +1231,10 @@ def import_transactions():
                     category = "Misc"
 
                 conn.execute(
-                    "INSERT INTO transactions (user_id, description, amount, type, category, date) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
-                    (user_id, description, amount, t_type, category, date)
+                    "INSERT INTO transactions "
+                    "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source)
                 )
                 inserted += 1
 
@@ -1169,9 +1297,10 @@ def upload_statement():
         try:
             for t in transactions:
                 conn.execute(
-                    "INSERT INTO transactions (user_id, description, amount, type, category, date) "
-                    "VALUES (%s, %s, %s, %s, %s, %s)",
-                    (user_id, t["description"], t["amount"], t["type"], t["category"], t["date"])
+                    "INSERT INTO transactions "
+                    "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (user_id, t["description"], t["amount"], t["type"], t["category"], t["date"], t.get("transaction_timestamp"), t.get("reference_id"), t.get("utr"), t.get("source", "Statement"))
                 )
             conn.commit()
         finally:
@@ -1234,12 +1363,16 @@ def save_preview_transactions():
             # NOTE: relies on a UNIQUE constraint on transactions
             # (user_id, description, amount, type, date) to dedupe,
             # matching the previous SQLite "INSERT OR IGNORE" behavior.
+            transaction_timestamp = _parse_transaction_timestamp(t.get("transaction_timestamp") or t.get("timestamp"))
+            reference_id = (t.get("reference_id") or t.get("referenceId") or "").strip()[:150] or None
+            utr = (t.get("utr") or "").strip()[:100] or None
+            source = (t.get("source") or "Statement preview").strip()[:100]
             cur = conn.execute(
                 "INSERT INTO transactions "
-                "(user_id, description, amount, type, category, date) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
+                "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 "ON CONFLICT DO NOTHING",
-                (user_id, description, amount, t_type, category, date)
+                (user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source)
             )
             inserted += cur.rowcount
 
@@ -1250,7 +1383,7 @@ def save_preview_transactions():
     return jsonify({"success": True, "count": inserted})
 
 
-_BULK_INSERT_COLUMNS = ("user_id", "description", "amount", "type", "category", "date")
+_BULK_INSERT_COLUMNS = ("user_id", "description", "amount", "type", "category", "date", "transaction_timestamp", "reference_id", "utr", "source")
 
 # PostgreSQL has a hard limit of 65535 bound parameters per statement.
 # 6 params/row → cap comfortably below that so even a single INSERT
@@ -1400,7 +1533,12 @@ def import_preview_transactions():
         if not description or amount <= 0:
             continue
 
-        valid_rows.append((user_id, description, amount, t_type, category, date))
+        transaction_timestamp = _parse_transaction_timestamp(t.get("transaction_timestamp") or t.get("timestamp"))
+        reference_id = (t.get("reference_id") or t.get("referenceId") or "").strip()[:150] or None
+        utr = (t.get("utr") or "").strip()[:100] or None
+        source = (t.get("source") or "Statement import").strip()[:100]
+
+        valid_rows.append((user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source))
 
     t_validated = time.perf_counter()
 

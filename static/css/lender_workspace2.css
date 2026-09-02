@@ -1,0 +1,4134 @@
+/* =============================================================
+   LENDER WORKSPACE — Credit underwriting terminal
+   Scoped under .lw-* / .lender-workspace. No shared-theme edits.
+   ============================================================= */
+
+html { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: inherit; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 100vh;
+    background: #0b0f17;
+    overflow-x: hidden;
+}
+
+.lender-workspace {
+    /* Dark charcoal/navy foundation, single restrained blue accent —
+       banking workstation, not consumer SaaS. */
+    --lw-bg: #0a0d13;
+    --lw-bg-panel: #10141d;
+    --lw-bg-panel-alt: #0c0f16;
+    --lw-bg-well: #0a0d13;
+    --lw-border: #1e2430;
+    --lw-border-soft: rgba(148, 163, 184, 0.07);
+    --lw-border-strong: #2b3342;
+    --lw-text: #e8ebf1;
+    --lw-text-dim: #94a0b3;
+    --lw-text-faint: #5c6474;
+    --lw-steel: #4979d1;
+    --lw-steel-light: rgba(73, 121, 209, 0.10);
+    --lw-steel-border: rgba(73, 121, 209, 0.32);
+    --lw-cyan: #4979d1; /* unified with --lw-steel — removes the dual-hue gradients used elsewhere */
+    --lw-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --lw-spring: cubic-bezier(0.32, 1.2, 0.44, 1);
+    --lw-header-h: 52px;
+    --lw-context-h: 40px;
+    --lw-rail-w: 224px;
+    --lw-radius: 8px;
+    --lw-radius-sm: 6px;
+    --lw-radius-lg: 10px;
+    --lw-radius-full: 999px;
+
+    width: 100%;
+    min-height: 100vh;
+    position: relative;
+    isolation: isolate;
+    background: var(--lw-bg);
+    color: var(--lw-text);
+    font-family: var(--font-sans, 'Inter', system-ui, sans-serif);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+}
+
+/* Single static vignette for depth — no animation, no multi-hue glow. */
+.lender-workspace::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: radial-gradient(900px 560px at 18% -8%, rgba(73, 121, 209, 0.05), transparent 62%);
+}
+
+.lender-workspace * { box-sizing: border-box; }
+.lender-workspace a { color: inherit; text-decoration: none; }
+.lender-workspace ::selection { background: var(--lw-steel-light); color: var(--lw-text); }
+
+/* Themed page-wide scrollbar (Firefox + WebKit) so overflow regions
+   outside .lw-nav (which already has its own) match the design system
+   instead of falling back to the OS default. */
+.lender-workspace {
+    scrollbar-width: thin;
+    scrollbar-color: var(--lw-border-strong) transparent;
+}
+.lender-workspace ::-webkit-scrollbar { width: 8px; height: 8px; }
+.lender-workspace ::-webkit-scrollbar-track { background: transparent; }
+.lender-workspace ::-webkit-scrollbar-thumb {
+    background: var(--lw-border-strong);
+    border-radius: var(--lw-radius-full);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+.lender-workspace ::-webkit-scrollbar-thumb:hover { background: var(--lw-steel-border); background-clip: padding-box; }
+
+/* -------------------------------------------------------------
+   HEADER
+------------------------------------------------------------- */
+.lw-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--lw-header-h);
+    padding: 0 16px 0 18px;
+    background: rgba(12, 15, 22, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--lw-border-soft);
+    position: sticky;
+    top: 0;
+    z-index: 40;
+}
+
+.lw-brand { display: flex; align-items: center; gap: 12px; }
+
+.lw-brand-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--lw-radius-sm);
+    background: var(--lw-steel);
+    border: 1px solid var(--lw-steel-border);
+    color: #0a0d13;
+    font-size: 0.84rem;
+    transition: border-color .2s var(--lw-ease);
+}
+.lw-brand:hover .lw-brand-mark { border-color: var(--lw-text-faint); }
+
+.lw-brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.lw-brand-product {
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--lw-text-faint);
+    font-weight: 700;
+}
+.lw-brand-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--lw-text);
+    letter-spacing: 0.01em;
+}
+
+.lw-header-right { display: flex; align-items: center; gap: 10px; }
+
+.lw-analyst {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px 4px 4px;
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius-full);
+    background: var(--lw-bg-panel);
+    transition: border-color .2s var(--lw-ease), background-color .2s var(--lw-ease);
+}
+.lw-analyst:hover { border-color: var(--lw-steel-border); background: var(--lw-bg-panel-alt); }
+
+.lw-analyst-avatar {
+    width: 24px; height: 24px;
+    border-radius: var(--lw-radius-full);
+    background: var(--lw-steel-light);
+    color: var(--lw-steel);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.68rem; font-weight: 800;
+}
+
+.lw-analyst-name { font-size: 0.75rem; font-weight: 600; color: var(--lw-text-dim); }
+.lw-analyst-role {
+    font-size: 0.6rem;
+    color: var(--lw-text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.lw-signout {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.75rem; font-weight: 600;
+    color: var(--lw-text-dim);
+    padding: 7px 14px;
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius-full);
+    cursor: pointer;
+    transition: border-color .2s var(--lw-ease), color .2s var(--lw-ease), background-color .2s var(--lw-ease), transform .2s var(--lw-spring);
+}
+.lw-signout:hover { color: var(--lw-text); border-color: var(--lw-steel-border); background: var(--lw-steel-light); transform: translateY(-1px); }
+.lw-signout:focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 2px; }
+
+/* -------------------------------------------------------------
+   CASE IDENTITY BAR
+------------------------------------------------------------- */
+.lw-context-strip {
+    display: none;
+    align-items: stretch;
+    gap: 0;
+    min-height: var(--lw-context-h);
+    background: #080a10;
+    border-top: 1px solid var(--lw-border-soft);
+    border-bottom: 1px solid var(--lw-border);
+    border-left: 3px solid var(--lw-steel);
+    position: sticky;
+    top: var(--lw-header-h);
+    z-index: 35;
+}
+.lw-context-strip.active { display: flex; }
+.lw-context-value { transition: color .2s var(--lw-ease); }
+
+.lw-context-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    padding: 5px 16px;
+    border-right: 1px solid var(--lw-border-soft);
+    min-width: 0;
+}
+.lw-context-item:last-child { border-right: none; }
+
+.lw-context-label {
+    font-size: 0.56rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--lw-text-faint);
+    font-weight: 700;
+}
+.lw-context-value {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--lw-text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lw-context-value.lw-context-muted { color: var(--lw-text-dim); font-weight: 600; }
+
+/* -------------------------------------------------------------
+   DESK: left rail + workspace
+------------------------------------------------------------- */
+.lw-desk {
+    display: flex;
+    align-items: stretch;
+    min-height: calc(100vh - var(--lw-header-h));
+    min-width: 0;
+}
+.lw-context-strip.active ~ .lw-desk {
+    min-height: calc(100vh - var(--lw-header-h) - var(--lw-context-h));
+}
+
+.lw-nav {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 var(--lw-rail-w);
+    width: var(--lw-rail-w);
+    gap: 2px;
+    padding: 14px 10px 20px;
+    border-right: 1px solid var(--lw-border);
+    background: #0b0e14;
+    position: sticky;
+    top: var(--lw-header-h);
+    height: calc(100vh - var(--lw-header-h));
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+.lw-nav::-webkit-scrollbar { width: 6px; }
+.lw-nav::-webkit-scrollbar-thumb { background: var(--lw-border-strong); border-radius: var(--lw-radius-full); }
+.lw-nav::-webkit-scrollbar-track { background: transparent; }
+.lw-context-strip.active ~ .lw-desk .lw-nav {
+    top: calc(var(--lw-header-h) + var(--lw-context-h));
+    height: calc(100vh - var(--lw-header-h) - var(--lw-context-h));
+}
+
+.lw-nav-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-bottom: 10px;
+    padding-top: 10px;
+}
+.lw-nav-group:first-child { padding-top: 0; }
+.lw-nav-group:not(:first-child) { border-top: 1px solid var(--lw-border); }
+.lw-nav-group:last-child { margin-bottom: 0; }
+
+.lw-nav-group-label {
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--lw-text-faint);
+    padding: 8px 10px 6px;
+}
+
+.lw-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    position: relative;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px 8px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--lw-text-dim);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--lw-radius-sm);
+    cursor: pointer;
+    transition: background-color .15s var(--lw-ease), color .15s var(--lw-ease);
+}
+.lw-nav-item i { font-size: 0.82em; width: 14px; opacity: 0.65; }
+.lw-nav-item:hover { color: var(--lw-text); background: rgba(255, 255, 255, 0.035); }
+.lw-nav-item:focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 1px; }
+.lw-nav-item.active {
+    color: var(--lw-text);
+    background: var(--lw-steel-light);
+    border-color: var(--lw-steel-border);
+    font-weight: 700;
+}
+.lw-nav-item.active::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 4px; bottom: 4px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background: var(--lw-steel);
+}
+.lw-nav-item.active i { opacity: 1; color: var(--lw-steel); }
+
+.lw-nav-badge {
+    font-size: 0.58rem; font-weight: 800;
+    padding: 1px 6px; border-radius: 999px;
+    background: var(--danger, #ef4444); color: #fff;
+    margin-left: auto;
+}
+
+/* -------------------------------------------------------------
+   WORKSPACE
+------------------------------------------------------------- */
+.lw-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 20px 24px 48px;
+    max-width: none;
+    margin: 0;
+}
+
+/* -------------------------------------------------------------
+   FINAL LENDING DECISION — floating panel
+------------------------------------------------------------- */
+.lw-decision-dock {
+    position: fixed;
+    left: 24px;
+    bottom: 24px;
+    width: 360px;
+    max-width: calc(100vw - 48px);
+    z-index: 900;
+    background: var(--lw-bg-panel);
+    border: 1px solid var(--lw-border-strong);
+    border-top: 3px solid var(--lw-steel);
+    border-radius: var(--lw-radius-lg);
+    box-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.65);
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    color: var(--lw-text);
+}
+
+#lwDecisionDockBody {
+    display: flex;
+    flex-direction: column;
+}
+
+.lw-decision-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--lw-bg-panel-alt);
+    border-bottom: 1px solid var(--lw-border-soft);
+}
+.lw-decision-panel-header .lw-panel-title {
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+}
+
+.lw-decision-panel-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--lw-radius-full);
+    border: 1px solid var(--lw-border);
+    background: transparent;
+    color: var(--lw-text-faint);
+    font-size: 0.68rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color .15s var(--lw-ease), border-color .15s var(--lw-ease), background-color .15s var(--lw-ease);
+}
+.lw-decision-panel-close:hover {
+    color: var(--lw-text);
+    border-color: var(--lw-border-strong);
+    background: rgba(255, 255, 255, 0.045);
+}
+.lw-decision-panel-close:focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 1px; }
+
+.lw-decision-panel-body {
+    display: flex;
+    flex-direction: column;
+    padding: 14px 16px 4px;
+}
+
+.lw-decision-panel-info {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.lw-decision-panel-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lw-decision-panel-divider {
+    height: 1px;
+    background: var(--lw-border-soft);
+    margin: 14px 0 12px;
+}
+
+.lw-decision-panel-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.lw-decision-panel-keep { width: 100%; justify-content: center; }
+.lw-decision-panel-actions-row {
+    display: flex;
+    gap: 8px;
+}
+.lw-decision-panel-actions-row .lw-btn { flex: 1 1 0; justify-content: center; white-space: nowrap; }
+
+.lw-decision-dock.lw-decision-dock-collapsed .lw-decision-panel-body,
+.lw-decision-dock.lw-decision-dock-collapsed .lw-decision-dock-alert,
+.lw-decision-dock.lw-decision-dock-collapsed .lw-decision-dock-note {
+    display: none;
+}
+.lw-decision-dock.lw-decision-dock-collapsed { max-height: none; }
+
+.lw-decision-dock-alert { padding: 0 16px; }
+.lw-decision-dock-note {
+    padding: 0 16px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.lw-section { display: none; }
+.lw-section.lw-section-active { display: block; animation: lwSectionIn .38s var(--lw-ease); }
+@keyframes lwFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lwSectionIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.995); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.lw-fade-in { animation: lwFadeIn .22s var(--lw-ease); }
+
+.lw-blotter-head,
+.lw-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--lw-border-soft);
+}
+
+.lw-page-sub { font-size: 0.78rem; color: var(--lw-text-faint); margin: 0; }
+
+.lw-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.lw-overview-grid { align-items: stretch; }
+.lw-overview-grid > .lw-panel,
+.lw-overview-grid > .lw-surface {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0;
+}
+.lw-overview-grid > .lw-panel > *:last-child,
+.lw-overview-grid > .lw-surface > *:last-child { margin-bottom: 0; }
+
+.lw-panel-wide,
+.lw-surface-wide {
+    margin-top: 10px;
+    border-color: var(--lw-border);
+}
+.lw-panel-wide .lw-factor-groups { gap: 24px; }
+
+.lw-stat-row.lw-stat-row-2 { grid-template-columns: repeat(2, 1fr); }
+
+.lw-panel,
+.lw-surface {
+    position: relative;
+    background: var(--lw-bg-panel);
+    border: 1px solid var(--lw-border);
+    border-radius: var(--lw-radius-lg);
+    padding: 16px 18px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.02) inset;
+    transition: border-color .15s var(--lw-ease);
+}
+.lw-panel:hover,
+.lw-surface:hover { border-color: var(--lw-border-strong); }
+.lw-panel + .lw-panel { margin-top: 10px; }
+
+.lw-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--lw-border);
+}
+.lw-panel-title {
+    font-size: 0.66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--lw-text-dim);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.lw-panel-title i { color: var(--lw-steel); }
+.lw-panel-note { font-size: 0.68rem; color: var(--lw-text-faint); }
+
+/* -------------------------------------------------------------
+   FORM
+------------------------------------------------------------- */
+.lw-form-group-title {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--lw-steel);
+    margin: 18px 0 10px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--lw-border);
+}
+.lw-form-group-title:first-child { margin-top: 0; }
+
+.lw-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px 14px;
+}
+
+.lw-field { display: flex; flex-direction: column; gap: 5px; }
+.lw-field label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--lw-text-dim);
+    letter-spacing: 0.02em;
+}
+.lw-field select, .lw-field input {
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border);
+    color: var(--lw-text);
+    border-radius: var(--lw-radius-sm);
+    padding: 9px 12px;
+    font-size: 0.8rem;
+    outline: none;
+    transition: border-color .2s var(--lw-ease), box-shadow .2s var(--lw-ease);
+}
+.lw-field select:focus, .lw-field input:focus {
+    border-color: var(--lw-steel);
+    box-shadow: 0 0 0 3px var(--lw-steel-light);
+}
+
+.lw-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--lw-border);
+}
+
+.lw-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 7px 13px;
+    border-radius: var(--lw-radius-sm);
+    border: 1px solid var(--lw-border);
+    background: var(--lw-bg-panel-alt);
+    color: var(--lw-text-dim);
+    cursor: pointer;
+    transition: border-color .15s var(--lw-ease), color .15s var(--lw-ease), background-color .15s var(--lw-ease);
+}
+.lw-btn:hover:not(:disabled) {
+    border-color: var(--lw-border-strong);
+    color: var(--lw-text);
+    background: var(--lw-bg-panel);
+}
+.lw-btn:active:not(:disabled) { background: var(--lw-bg-well); }
+.lw-btn:focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 2px; }
+.lw-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.lw-btn-primary {
+    background: var(--lw-steel) !important;
+    border-color: var(--lw-steel) !important;
+    color: #ffffff !important;
+    box-shadow: 0 6px 18px -8px rgba(73, 121, 209, 0.55);
+    transition:
+        background-color .18s var(--lw-ease),
+        border-color .18s var(--lw-ease),
+        box-shadow .18s var(--lw-ease),
+        transform .18s var(--lw-spring),
+        filter .18s var(--lw-ease);
+}
+
+.lw-btn-primary:hover:not(:disabled) {
+    background: #5b8ae0 !important;
+    border-color: #5b8ae0 !important;
+    color: #ffffff !important;
+    filter: none !important;
+    box-shadow: 0 8px 22px -8px rgba(73, 121, 209, 0.7);
+    transform: translateY(-1px);
+}
+
+.lw-btn-primary:active:not(:disabled) {
+    background: #416fbe !important;
+    border-color: #416fbe !important;
+    color: #ffffff !important;
+    transform: translateY(0);
+    box-shadow: 0 4px 12px -8px rgba(73, 121, 209, 0.55);
+}
+
+.lw-btn-primary:focus-visible {
+    background: var(--lw-steel) !important;
+    border-color: var(--lw-steel) !important;
+    color: #ffffff !important;
+    outline: 2px solid rgba(73, 121, 209, 0.55);
+    outline-offset: 2px;
+}
+/* -------------------------------------------------------------
+   FINAL LENDING DECISION — confirmation modal (#lwConfirmModal)
+------------------------------------------------------------- */
+.lw-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(4, 7, 13, 0.72);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    animation: lwFadeIn .2s var(--lw-ease);
+}
+
+.lw-confirm-panel {
+    width: 100%;
+    max-width: 400px;
+    background: var(--lw-bg-panel);
+    border: 1px solid var(--lw-steel-border);
+    border-radius: var(--lw-radius-lg);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 1px 0 0 rgba(255, 255, 255, 0.03) inset;
+    padding: 24px 24px 20px;
+    font-family: var(--font-sans, 'Inter', system-ui, sans-serif);
+    animation: lwConfirmIn .32s var(--lw-spring);
+}
+@keyframes lwConfirmIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.lw-confirm-panel:focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 3px; }
+
+.lw-confirm-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--lw-text);
+    margin-bottom: 10px;
+}
+.lw-confirm-message {
+    font-size: 0.8rem;
+    color: var(--lw-text-dim);
+    line-height: 1.55;
+    margin-bottom: 20px;
+}
+.lw-confirm-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+.lw-confirm-actions .lw-btn { min-width: 84px; justify-content: center; }
+
+.lw-btn-approve {
+    background: var(--success, #22c55e);
+    border-color: var(--success, #22c55e);
+    color: #06180f;
+}
+.lw-btn-approve:hover:not(:disabled) {
+    filter: brightness(1.08);
+    color: #06180f;
+    box-shadow: 0 4px 14px -4px rgba(34, 197, 94, 0.55);
+}
+.lw-btn-reject,
+.lw-btn-danger {
+    background: var(--danger, #ef4444);
+    border-color: var(--danger, #ef4444);
+    color: #1a0505;
+}
+.lw-btn-reject:hover:not(:disabled),
+.lw-btn-danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+    color: #1a0505;
+    box-shadow: 0 4px 14px -4px rgba(239, 68, 68, 0.55);
+}
+
+/* -------------------------------------------------------------
+   AI RISK ANALYST (PHASE 9)
+------------------------------------------------------------- */
+.lw-ra-trigger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    margin-right: 14px;
+    padding: 5px 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--lw-text-dim);
+    background: transparent;
+    border: 1px solid var(--lw-border-strong);
+    border-radius: var(--lw-radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .15s var(--lw-ease), border-color .15s var(--lw-ease);
+}
+.lw-ra-trigger-btn:hover { color: var(--lw-text); border-color: var(--lw-steel-border); }
+.lw-ra-trigger-btn i { color: var(--lw-steel); }
+
+.lw-ra-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(4, 7, 13, 0.72);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    animation: lwFadeIn .2s var(--lw-ease);
+}
+
+.lw-ra-panel {
+    width: 100%;
+    max-width: 560px;
+    height: min(680px, 88vh);
+    display: flex;
+    flex-direction: column;
+    background: var(--lw-bg-panel);
+    border: 1px solid var(--lw-steel-border);
+    border-radius: var(--lw-radius-lg);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 1px 0 0 rgba(255, 255, 255, 0.03) inset;
+    font-family: var(--font-sans, 'Inter', system-ui, sans-serif);
+    animation: lwConfirmIn .32s var(--lw-spring);
+    overflow: hidden;
+}
+.lw-ra-panel:focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 3px; }
+
+.lw-ra-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--lw-border-soft);
+    flex-shrink: 0;
+}
+.lw-ra-header-title { display: flex; align-items: flex-start; gap: 10px; }
+.lw-ra-header-title > i { color: var(--lw-cyan); font-size: 1.05rem; margin-top: 2px; }
+.lw-ra-title { font-size: 0.94rem; font-weight: 700; color: var(--lw-text); }
+.lw-ra-app-label { font-size: 0.72rem; color: var(--lw-text-dim); margin-top: 2px; }
+
+.lw-ra-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--lw-radius-sm);
+    background: transparent;
+    border: 1px solid var(--lw-border-soft);
+    color: var(--lw-text-dim);
+    cursor: pointer;
+    transition: background .15s var(--lw-ease), color .15s var(--lw-ease);
+}
+.lw-ra-close-btn:hover { background: var(--lw-bg-well); color: var(--lw-text); }
+
+.lw-ra-scope-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 12px 18px 0;
+    padding: 9px 12px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--lw-text-dim);
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius-sm);
+    flex-shrink: 0;
+}
+.lw-ra-scope-note > i { color: var(--lw-cyan); margin-top: 1px; }
+
+.lw-ra-suggested {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    padding: 12px 18px 0;
+    flex-shrink: 0;
+}
+.lw-ra-chip {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--lw-text-dim);
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius-full);
+    padding: 6px 11px;
+    cursor: pointer;
+    transition: background .15s var(--lw-ease), color .15s var(--lw-ease), border-color .15s var(--lw-ease);
+}
+.lw-ra-chip:hover {
+    color: var(--lw-text);
+    border-color: var(--lw-steel-border);
+    background: var(--lw-steel-light);
+}
+
+.lw-ra-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.lw-ra-empty {
+    margin: auto;
+    text-align: center;
+    color: var(--lw-text-faint);
+    font-size: 0.78rem;
+    line-height: 1.6;
+    max-width: 320px;
+}
+.lw-ra-empty > i { font-size: 1.3rem; display: block; margin-bottom: 8px; color: var(--lw-text-faint); }
+
+.lw-ra-msg { display: flex; }
+.lw-ra-msg-question { justify-content: flex-end; }
+.lw-ra-msg-answer { justify-content: flex-start; }
+
+.lw-ra-bubble {
+    max-width: 84%;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    padding: 10px 13px;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.lw-ra-msg-question .lw-ra-bubble {
+    background: var(--lw-steel-light);
+    border: 1px solid var(--lw-steel-border);
+    color: var(--lw-text);
+    border-bottom-right-radius: 4px;
+}
+.lw-ra-msg-answer .lw-ra-bubble {
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border-soft);
+    color: var(--lw-text);
+    border-bottom-left-radius: 4px;
+}
+.lw-ra-bubble-icon { color: var(--lw-cyan); margin-right: 7px; }
+.lw-ra-bubble-error {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.lw-ra-answer-content { white-space: normal; }
+.lw-ra-answer-content .lw-ra-p {
+    margin: 0 0 8px;
+}
+.lw-ra-answer-content .lw-ra-p:last-child { margin-bottom: 0; }
+.lw-ra-answer-content .lw-ra-list {
+    margin: 0 0 8px;
+    padding-left: 18px;
+}
+.lw-ra-answer-content .lw-ra-list:last-child { margin-bottom: 0; }
+.lw-ra-answer-content .lw-ra-list li {
+    margin: 2px 0;
+}
+.lw-ra-answer-content strong {
+    color: var(--lw-text);
+    font-weight: 700;
+}
+
+.lw-ra-loading { display: flex; align-items: center; gap: 4px; padding: 13px; }
+.lw-ra-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--lw-text-faint);
+    animation: lwRaBounce 1.1s infinite ease-in-out;
+}
+.lw-ra-dot:nth-child(2) { animation-delay: .15s; }
+.lw-ra-dot:nth-child(3) { animation-delay: .3s; }
+@keyframes lwRaBounce {
+    0%, 60%, 100% { opacity: .35; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-3px); }
+}
+
+.lw-ra-composer {
+    flex-shrink: 0;
+    padding: 12px 18px 16px;
+    border-top: 1px solid var(--lw-border-soft);
+}
+.lw-ra-composer-error {
+    font-size: 0.72rem;
+    color: #fca5a5;
+    margin-bottom: 8px;
+}
+.lw-ra-composer-row { display: flex; align-items: flex-end; gap: 10px; }
+.lw-ra-input {
+    flex: 1;
+    resize: none;
+    max-height: 120px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--lw-text);
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius-sm);
+    padding: 9px 12px;
+}
+.lw-ra-input:focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 1px; }
+.lw-ra-ask-btn { flex-shrink: 0; }
+
+@media (max-width: 640px) {
+    .lw-ra-panel { max-width: 100%; height: 92vh; }
+    .lw-ra-trigger-btn { margin: 6px 0 0; }
+}
+
+.lw-error-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.lw-error-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    font-size: 0.76rem; color: #fca5a5;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.22);
+    border-radius: var(--lw-radius);
+    padding: 8px 10px;
+    animation: lwSectionIn .2s var(--lw-ease);
+}
+.lw-error-item i { margin-top: 1px; }
+.hidden { display: none !important; }
+
+/* -------------------------------------------------------------
+   EMPTY / LOADING
+------------------------------------------------------------- */
+.lw-empty {
+    text-align: center;
+    padding: 40px 16px;
+    color: var(--lw-text-faint);
+    animation: lwSectionIn .24s var(--lw-ease);
+}
+.lw-empty i { font-size: 1.4rem; margin-bottom: 8px; color: var(--lw-border-strong); }
+.lw-empty-title { font-size: 0.86rem; font-weight: 700; color: var(--lw-text-dim); }
+.lw-empty-sub { font-size: 0.76rem; margin-top: 4px; color: var(--lw-text-faint); }
+
+.lw-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 32px;
+    color: var(--lw-text-faint);
+    font-size: 0.8rem;
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--lw-radius);
+}
+.lw-loading::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        rgba(91, 130, 255, 0) 0%,
+        rgba(91, 130, 255, 0.06) 50%,
+        rgba(91, 130, 255, 0) 100%);
+    transform: translateX(-100%);
+    animation: lwShimmer 1.6s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes lwShimmer {
+    to { transform: translateX(100%); }
+}
+
+/* -------------------------------------------------------------
+   RISK / DECISION BOARD
+------------------------------------------------------------- */
+.lw-overview-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+.lw-overview-top-dominant { padding: 4px 0 8px 0; }
+
+.lw-risk-block { display: flex; align-items: center; gap: 16px; }
+
+.lw-risk-gauge-wrap { position: relative; width: 112px; height: 112px; flex-shrink: 0; }
+.lw-risk-gauge { width: 100%; height: 100%; transform: rotate(-90deg); }
+.lw-risk-gauge-track { fill: none; stroke: var(--lw-bg-well); stroke-width: 8; }
+.lw-risk-gauge-fill {
+    fill: none; stroke-width: 8; stroke-linecap: round;
+    transition: stroke-dashoffset .2s var(--lw-ease);
+}
+.lw-risk-gauge-wrap { animation: lwSectionIn .24s var(--lw-ease); }
+.lw-risk-gauge-fill.lw-risk-low { stroke: var(--success, #22c55e); }
+.lw-risk-gauge-fill.lw-risk-medium { stroke: var(--warning, #f59e0b); }
+.lw-risk-gauge-fill.lw-risk-high { stroke: var(--danger, #ef4444); }
+.lw-risk-gauge-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+}
+.lw-risk-gauge-center .lw-risk-probability { font-size: 1.35rem; }
+.lw-risk-gauge-center .lw-risk-level { font-size: 0.58rem; margin-top: 2px; }
+
+.lw-risk-icon {
+    width: 44px; height: 44px; border-radius: var(--lw-radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+}
+.lw-risk-icon.lw-risk-low { background: var(--success-light, rgba(34,197,94,.12)); color: var(--success, #22c55e); }
+.lw-risk-icon.lw-risk-medium { background: var(--warning-light, rgba(245,158,11,.12)); color: var(--warning, #f59e0b); }
+.lw-risk-icon.lw-risk-high { background: var(--danger-light, rgba(239,68,68,.12)); color: var(--danger, #ef4444); }
+
+.lw-risk-probability {
+    font-size: 2.15rem;
+    font-weight: 800;
+    color: var(--lw-text);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+.lw-risk-level {
+    font-size: 0.72rem;
+    font-weight: 700;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.lw-risk-level.lw-risk-low { color: var(--success, #22c55e); }
+.lw-risk-level.lw-risk-medium { color: var(--warning, #f59e0b); }
+.lw-risk-level.lw-risk-high { color: var(--danger, #ef4444); }
+
+.lw-decision-badge {
+    font-size: 0.82rem;
+    font-weight: 800;
+    padding: 9px 16px;
+    border-radius: var(--lw-radius-sm);
+    border: 1px solid;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.lw-decision-approve { background: var(--success-light, rgba(34,197,94,.1)); border-color: var(--success, #22c55e); color: var(--success, #22c55e); }
+.lw-decision-review { background: var(--warning-light, rgba(245,158,11,.1)); border-color: var(--warning, #f59e0b); color: var(--warning, #f59e0b); }
+.lw-decision-reject { background: var(--danger-light, rgba(239,68,68,.1)); border-color: var(--danger, #ef4444); color: var(--danger, #ef4444); }
+
+.lw-probability-track {
+    width: 100%; height: 6px; border-radius: var(--lw-radius-full);
+    background: var(--lw-bg-well);
+    overflow: hidden;
+    margin: 10px 0 14px 0;
+}
+.lw-probability-fill { height: 100%; border-radius: var(--lw-radius-full); transition: width .6s var(--lw-spring); }
+.lw-probability-fill.lw-risk-low { background: var(--success, #22c55e); }
+.lw-probability-fill.lw-risk-medium { background: var(--warning, #f59e0b); }
+.lw-probability-fill.lw-risk-high { background: var(--danger, #ef4444); }
+
+.lw-stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.lw-stat-card {
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius);
+    padding: 11px 13px;
+    transition: border-color .2s var(--lw-ease), background-color .2s var(--lw-ease);
+}
+.lw-stat-card.lw-stat-card-link { cursor: pointer; }
+.lw-stat-card.lw-stat-card-link:hover {
+    border-color: var(--lw-steel-border);
+    background: var(--lw-bg-panel-alt);
+}
+.lw-stat-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--lw-text-faint);
+    font-weight: 700;
+    margin-bottom: 3px;
+}
+.lw-stat-value {
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: var(--lw-text);
+    font-variant-numeric: tabular-nums;
+}
+.lw-stat-value.na { color: var(--lw-text-faint); font-size: 0.78rem; font-weight: 600; }
+.lw-stat-value.state-good { color: var(--success, #22c55e); }
+.lw-stat-value.state-warn { color: var(--warning, #f59e0b); }
+.lw-stat-value.state-bad { color: var(--danger, #ef4444); }
+.lw-stat-unit {
+    font-size: 0.62rem;
+    color: var(--lw-text-faint);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-left: 4px;
+}
+
+.lw-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: var(--lw-radius-full);
+    border: 1px solid var(--lw-border);
+    color: var(--lw-text-dim);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+.lw-badge.state-good { color: var(--success, #22c55e); border-color: rgba(34,197,94,.45); background: var(--success-light, rgba(34,197,94,.08)); }
+.lw-badge.state-warn { color: var(--warning, #f59e0b); border-color: rgba(245,158,11,.45); background: var(--warning-light, rgba(245,158,11,.08)); }
+.lw-badge.state-bad { color: var(--danger, #ef4444); border-color: rgba(239,68,68,.45); background: var(--danger-light, rgba(239,68,68,.08)); }
+
+/* Snapshot rail */
+.lw-snapshot-list { display: flex; flex-direction: column; gap: 0; }
+.lw-snapshot-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 10px 10px 12px;
+    margin-left: -10px;
+    border-radius: var(--lw-radius-sm);
+    border-bottom: 1px solid var(--lw-border-soft);
+    border-left: 2px solid transparent;
+    cursor: pointer;
+    background: transparent;
+    border-right: 0;
+    border-top: 0;
+    width: calc(100% + 10px);
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    transition: background-color .2s var(--lw-ease), border-left-color .2s var(--lw-ease), transform .2s var(--lw-spring);
+}
+.lw-snapshot-row:last-child { border-bottom: none; }
+.lw-snapshot-row:hover {
+    background: rgba(59, 130, 246, 0.07);
+    border-left-color: var(--lw-steel);
+    transform: translateX(2px);
+}
+.lw-snapshot-row:hover .lw-snapshot-name { color: var(--lw-text); }
+.lw-snapshot-row:hover .lw-snapshot-state { transform: scale(1.05); }
+.lw-snapshot-name {
+    font-size: 0.78rem;
+    font-weight: 650;
+    color: var(--lw-text-dim);
+    transition: color .16s var(--lw-ease);
+}
+.lw-snapshot-state {
+    font-size: 0.74rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--lw-text);
+    display: inline-block;
+    transition: transform .16s var(--lw-ease);
+}
+
+/* -------------------------------------------------------------
+   BLOTTER (queue table)
+------------------------------------------------------------- */
+.lw-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.76rem;
+}
+.lw-table th {
+    text-align: left;
+    padding: 8px 10px;
+    color: var(--lw-text-faint);
+    text-transform: uppercase;
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    border-bottom: 1px solid var(--lw-border);
+    background: var(--lw-bg-panel);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.lw-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--lw-border-soft);
+    color: var(--lw-text-dim);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+}
+.lw-table tbody tr {
+    transition: background-color .16s var(--lw-ease);
+    animation: lwRowIn .35s var(--lw-ease) both;
+}
+@keyframes lwRowIn {
+    from { opacity: 0; transform: translateY(3px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.lw-table tbody tr:nth-child(1) { animation-delay: 0ms; }
+.lw-table tbody tr:nth-child(2) { animation-delay: 25ms; }
+.lw-table tbody tr:nth-child(3) { animation-delay: 50ms; }
+.lw-table tbody tr:nth-child(4) { animation-delay: 75ms; }
+.lw-table tbody tr:nth-child(5) { animation-delay: 100ms; }
+.lw-table tbody tr:nth-child(6) { animation-delay: 125ms; }
+.lw-table tbody tr:nth-child(7) { animation-delay: 150ms; }
+.lw-table tbody tr:nth-child(8) { animation-delay: 175ms; }
+.lw-table tbody tr:nth-child(n+9) { animation-delay: 195ms; }
+.lw-table tbody tr:hover { background: rgba(91, 130, 255, 0.06); }
+.lw-table tbody tr:hover td:first-child { color: var(--lw-text); font-weight: 700; }
+.lw-table tbody tr td { transition: color .16s var(--lw-ease); }
+.lw-table tbody tr:last-child td { border-bottom: 1px solid var(--lw-border-soft); }
+.lw-table tbody tr:hover .lw-review-btn {
+    border-color: var(--lw-steel);
+    box-shadow: 0 0 0 1px rgba(91, 130, 255, 0.25);
+}
+
+.lw-blotter-wrap {
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius);
+    overflow: auto;
+    max-height: calc(100vh - 160px);
+    background: var(--lw-bg-panel);
+}
+
+/* -------------------------------------------------------------
+   CASE FILE (detail)
+------------------------------------------------------------- */
+.lw-case-file { display: flex; flex-direction: column; gap: 12px; }
+.lw-assess-strip {
+    border: 1px solid var(--lw-border);
+    background: var(--lw-bg-panel);
+    border-radius: var(--lw-radius);
+    padding: 14px 16px;
+}
+
+/* -------------------------------------------------------------
+   SHAP BOOK
+------------------------------------------------------------- */
+.lw-factor-groups {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px 28px;
+}
+.lw-factor-group-title {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.lw-factor-group-title.increasing { color: var(--danger, #ef4444); }
+.lw-factor-group-title.reducing { color: var(--success, #22c55e); }
+.lw-factor-item {
+    margin-bottom: 10px;
+    animation: lwFactorIn .45s var(--lw-ease) both;
+}
+@keyframes lwFactorIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.lw-factor-item:nth-child(1) { animation-delay: 0ms; }
+.lw-factor-item:nth-child(2) { animation-delay: 50ms; }
+.lw-factor-item:nth-child(3) { animation-delay: 100ms; }
+.lw-factor-item:nth-child(4) { animation-delay: 150ms; }
+.lw-factor-item:nth-child(5) { animation-delay: 200ms; }
+.lw-factor-item:nth-child(6) { animation-delay: 250ms; }
+.lw-factor-item:nth-child(7) { animation-delay: 300ms; }
+.lw-factor-item:nth-child(8) { animation-delay: 350ms; }
+.lw-factor-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.76rem;
+    margin-bottom: 4px;
+}
+.lw-factor-name { color: var(--lw-text-dim); font-weight: 600; }
+.lw-factor-impact {
+    color: var(--lw-text);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 0.74rem;
+}
+.lw-factor-bar-track {
+    height: 6px;
+    background: var(--lw-bg-well);
+    border-radius: var(--lw-radius-full);
+    overflow: hidden;
+}
+.lw-factor-bar-fill { height: 100%; border-radius: var(--lw-radius-full); transition: width .6s var(--lw-spring); }
+.lw-factor-increasing .lw-factor-bar-fill { background: var(--danger, #ef4444); }
+.lw-factor-reducing .lw-factor-bar-fill { background: var(--success, #22c55e); }
+
+/* -------------------------------------------------------------
+   FLAGS / DISCLAIMERS
+------------------------------------------------------------- */
+.lw-evidence-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+
+.lw-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+}
+
+.lw-flag-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--lw-radius);
+    border: 1px solid var(--lw-border-soft);
+    border-left: 3px solid var(--lw-border-strong);
+    background: var(--lw-bg-well);
+    font-size: 0.76rem;
+    margin-bottom: 8px;
+}
+.lw-flag-item.severity-high { border-left-color: var(--danger, #ef4444); }
+.lw-flag-item.severity-medium { border-left-color: var(--warning, #f59e0b); }
+.lw-flag-title { font-weight: 700; color: var(--lw-text); }
+.lw-flag-evidence { color: var(--lw-text-faint); margin-top: 2px; }
+
+.lw-disclaimer {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 0.74rem;
+    color: var(--lw-text-faint);
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius);
+    padding: 8px 10px;
+    margin-bottom: 12px;
+}
+.lw-disclaimer i { color: var(--lw-steel); margin-top: 2px; }
+
+/* -------------------------------------------------------------
+   CASH-FLOW BAR
+------------------------------------------------------------- */
+.lw-cashflow-bar { margin: 12px 0 4px; }
+.lw-cashflow-bar-track {
+    display: flex;
+    width: 100%;
+    height: 10px;
+    border-radius: var(--lw-radius-full);
+    background: var(--lw-bg-well);
+    overflow: hidden;
+    border: 1px solid var(--lw-border-soft);
+}
+.lw-cashflow-bar-segment { height: 100%; transition: width .6s var(--lw-spring); }
+.lw-cashflow-obligations { background: #64748b; }
+.lw-cashflow-surplus { background: var(--success, #22c55e); }
+.lw-cashflow-surplus.state-bad { background: var(--danger, #ef4444); }
+.lw-cashflow-bar-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    font-size: 0.7rem;
+    color: var(--lw-text-faint);
+    font-weight: 600;
+}
+.lw-cashflow-bar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lw-legend-dot { width: 8px; height: 8px; border-radius: var(--lw-radius-full); display: inline-block; background: #94a3b8; }
+.lw-legend-dot.lw-legend-obligations { background: #94a3b8; }
+.lw-legend-dot.lw-legend-surplus { background: var(--success, #22c55e); }
+.lw-legend-dot.lw-legend-surplus.state-bad { background: var(--danger, #ef4444); }
+
+/* -------------------------------------------------------------
+   ANOMALY STRIP
+------------------------------------------------------------- */
+.lw-anomaly-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid var(--lw-border);
+    background: var(--lw-bg-panel);
+    border-radius: var(--lw-radius);
+    overflow: hidden;
+}
+.lw-anomaly-cell {
+    padding: 14px 16px;
+    border-right: 1px solid var(--lw-border-soft);
+}
+.lw-anomaly-cell:last-child { border-right: none; }
+.lw-anomaly-strip.lw-anomaly-flagged {
+    border-left: 3px solid var(--warning, #f59e0b);
+}
+.lw-anomaly-strip.lw-anomaly-normal {
+    border-left: 3px solid var(--success, #22c55e);
+}
+
+/* -------------------------------------------------------------
+   SCENARIO BENCH
+------------------------------------------------------------- */
+.lw-scenario-bench {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+}
+.lw-scenario-pane {
+    background: var(--lw-bg-panel);
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius);
+    padding: 16px;
+    min-width: 0;
+}
+.lw-scenario-controls {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.lw-scenario-hypo-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--warning, #f59e0b);
+    margin: 8px 0 10px 0;
+}
+.lw-compare-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 10px;
+}
+.lw-compare-card {
+    text-align: center;
+    padding: 14px 12px;
+    border-radius: var(--lw-radius);
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border-soft);
+}
+.lw-compare-card.lw-compare-current {
+    border-color: var(--lw-steel-border);
+}
+.lw-compare-card.lw-compare-hypothetical {
+    border-color: rgba(245, 158, 11, 0.35);
+}
+.lw-compare-tag {
+    display: inline-block;
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 9px;
+    border-radius: var(--lw-radius-full);
+    margin-bottom: 8px;
+}
+.lw-compare-tag.lw-compare-tag-current { background: var(--lw-steel-light); color: var(--lw-steel); }
+.lw-compare-tag.lw-compare-tag-hypothetical { background: rgba(245, 158, 11, 0.14); color: var(--warning, #f59e0b); }
+.lw-compare-label {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    color: var(--lw-text-faint);
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+.lw-compare-arrow { color: var(--lw-steel); font-size: 1rem; }
+
+/* -------------------------------------------------------------
+   FINAL DECISION SUMMARY (legacy, hidden)
+------------------------------------------------------------- */
+.lw-summary-card {
+    border: 1px solid var(--lw-border);
+    background: var(--lw-bg-well);
+    border-radius: var(--lw-radius);
+    padding: 14px;
+}
+.lw-summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--lw-border-soft);
+    font-size: 0.8rem;
+}
+.lw-summary-row:last-child { border-bottom: none; }
+.lw-summary-key { color: var(--lw-text-faint); font-weight: 600; }
+.lw-summary-val { color: var(--lw-text); font-weight: 700; }
+
+/* -------------------------------------------------------------
+   MICRO-INTERACTIONS: clickable snapshot/anomaly items, tables
+------------------------------------------------------------- */
+.lw-anomaly-strip { transition: border-color .2s var(--lw-ease); }
+.lw-compare-card { transition: border-color .2s var(--lw-ease), transform .25s var(--lw-spring), box-shadow .25s var(--lw-ease); }
+.lw-compare-card:hover { transform: translateY(-2px); box-shadow: 0 10px 22px -14px rgba(59, 130, 246, 0.5); }
+
+/* -------------------------------------------------------------
+   REDUCED MOTION
+------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    .lw-section.lw-section-active,
+    .lw-fade-in,
+    .lw-context-strip.active,
+    .lw-empty,
+    .lw-error-item,
+    .lw-risk-gauge-wrap,
+    .lw-decision-badge,
+    .lw-decision-badge.lw-decision-approve,
+    .lw-decision-badge.lw-decision-reject,
+    .lw-decision-dock,
+    .lw-confirm-overlay,
+    .lw-ra-overlay,
+    .lw-confirm-panel,
+    .lw-stat-card,
+    .lw-table tbody tr,
+    .lw-nav-item.active::before,
+    .lw-ra-trigger-btn i,
+    .lender-workspace::before,
+    .lw-factor-item {
+        animation: none !important;
+    }
+    .lw-nav-item,
+    .lw-nav-item i,
+    .lw-nav-item::after,
+    .lw-nav-item.active::before,
+    .lw-confirm-panel,
+    .lw-btn,
+    .lw-btn::after,
+    .lw-btn i,
+    .lw-btn:active:not(:disabled),
+    .lw-stat-card,
+    .lw-panel,
+    .lw-panel::before,
+    .lw-surface::before,
+    .lw-compare-card,
+    .lw-brand-mark,
+    .lw-brand-title,
+    .lw-signout,
+    .lw-snapshot-row,
+    .lw-snapshot-name,
+    .lw-snapshot-state,
+    .lw-table tbody tr,
+    .lw-table tbody tr td,
+    .lw-risk-gauge-fill,
+    .lw-probability-fill,
+    .lw-factor-bar-fill,
+    .lw-cashflow-bar-segment,
+    .lw-context-value {
+        transition: none !important;
+        transform: none !important;
+    }
+    .lw-loading::after { animation: none !important; display: none; }
+}
+
+/* -------------------------------------------------------------
+   RESPONSIVE
+------------------------------------------------------------- */
+@media (max-width: 1180px) {
+    .lw-grid, .lw-overview-grid, .lw-split, .lw-scenario-bench, .lw-factor-groups {
+        grid-template-columns: 1fr;
+    }
+    .lw-stat-row { grid-template-columns: repeat(2, 1fr); }
+    .lw-form-grid { grid-template-columns: repeat(2, 1fr); }
+    .lw-evidence-grid { grid-template-columns: 1fr; }
+    .lw-anomaly-strip { grid-template-columns: repeat(2, 1fr); }
+    .lw-anomaly-cell:nth-child(2) { border-right: none; }
+}
+
+@media (max-width: 860px) {
+    .lw-desk { flex-direction: column; }
+    .lw-nav {
+        flex-direction: row;
+        flex-wrap: nowrap;
+        width: 100%;
+        flex: 0 0 auto;
+        height: auto;
+        position: sticky;
+        top: var(--lw-header-h);
+        overflow-x: auto;
+        overflow-y: hidden;
+        border-right: none;
+        border-bottom: 1px solid var(--lw-border);
+        padding: 8px;
+        gap: 4px;
+    }
+    .lw-context-strip.active ~ .lw-desk .lw-nav {
+        top: calc(var(--lw-header-h) + var(--lw-context-h));
+        height: auto;
+    }
+    .lw-nav-group {
+        flex-direction: row;
+        margin-bottom: 0;
+        padding-top: 0;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 2px;
+    }
+    .lw-nav-group:not(:first-child) {
+        border-top: none;
+        border-left: 1px solid var(--lw-border-soft);
+        padding-left: 6px;
+        margin-left: 4px;
+    }
+    .lw-nav-group-label { display: none; }
+    .lw-nav-item { width: auto; flex-shrink: 0; white-space: nowrap; }
+    .lw-nav-item.active::before { top: auto; bottom: 0; left: 10px; right: 10px; width: auto; height: 3px; }
+    .lw-form-grid { grid-template-columns: 1fr; }
+    .lw-compare-row { grid-template-columns: 1fr; }
+    .lw-compare-arrow { transform: rotate(90deg); margin: 0 auto; }
+    .lw-header { padding: 0 14px; }
+    .lw-main { padding: 14px 14px 48px; }
+    .lw-risk-gauge-wrap { width: 88px; height: 88px; }
+    .lw-blotter-wrap { max-height: none; }
+    .lw-context-strip { flex-wrap: wrap; min-height: 0; }
+    .lw-context-item { padding: 6px 12px; }
+}
+
+/* -------------------------------------------------------------
+   FINAL LENDING DECISION panel — narrow viewports
+------------------------------------------------------------- */
+@media (max-width: 700px) {
+    .lw-decision-dock {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        width: auto;
+        max-width: none;
+        max-height: calc(100vh - 24px);
+    }
+    .lw-decision-panel-actions-row { flex-wrap: wrap; }
+    .lw-decision-panel-actions-row .lw-btn { flex: 1 1 120px; }
+}
+/* =================================================================
+   FINTRUST — PREMIUM INTERACTION + DEPTH LAYER
+   Appended overrides: preserves existing markup/logic while making
+   the lender workspace feel more polished, responsive and alive.
+   ================================================================= */
+
+.lender-workspace {
+    --lw-bg: #080b12;
+    --lw-bg-panel: #101621;
+    --lw-bg-panel-alt: #0d131d;
+    --lw-bg-well: #090d15;
+    --lw-border: rgba(148, 163, 184, 0.14);
+    --lw-border-soft: rgba(148, 163, 184, 0.08);
+    --lw-border-strong: rgba(116, 145, 198, 0.30);
+    --lw-text: #edf2f8;
+    --lw-text-dim: #a7b2c3;
+    --lw-text-faint: #6f7b8e;
+    --lw-steel: #5d8ee8;
+    --lw-steel-light: rgba(93, 142, 232, 0.105);
+    --lw-steel-border: rgba(93, 142, 232, 0.34);
+    --lw-cyan: #73a6ff;
+    --lw-elev-1: 0 10px 30px rgba(0, 0, 0, 0.18);
+    --lw-elev-2: 0 18px 50px rgba(0, 0, 0, 0.28);
+    --lw-focus-ring: 0 0 0 3px rgba(93, 142, 232, 0.16);
+}
+
+/* ---------- shell ---------- */
+.lender-workspace {
+    background:
+        radial-gradient(1000px 620px at 75% -18%, rgba(93, 142, 232, 0.06), transparent 62%),
+        radial-gradient(720px 520px at 10% 24%, rgba(56, 82, 128, 0.05), transparent 68%),
+        var(--lw-bg);
+}
+
+.lender-workspace::before {
+    background:
+        radial-gradient(760px 420px at 18% -10%, rgba(93, 142, 232, 0.055), transparent 62%),
+        linear-gradient(180deg, rgba(255,255,255,0.012), transparent 24%);
+}
+
+/* ---------- header ---------- */
+.lw-header {
+    height: 58px;
+    padding: 0 20px 0 22px;
+    background: rgba(9, 13, 20, 0.82);
+    border-bottom-color: rgba(148, 163, 184, 0.11);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.12);
+    transition: background .25s var(--lw-ease), border-color .25s var(--lw-ease);
+}
+
+.lw-header::after {
+    content: "";
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(93,142,232,0.26), transparent);
+    pointer-events: none;
+}
+
+.lw-brand {
+    gap: 13px;
+}
+
+.lw-brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    box-shadow: 0 8px 20px rgba(93, 142, 232, 0.20);
+    transition: transform .24s var(--lw-spring), box-shadow .24s var(--lw-ease), border-color .2s var(--lw-ease);
+}
+
+.lw-brand:hover .lw-brand-mark {
+    transform: translateY(-1px) rotate(-2deg);
+    box-shadow: 0 10px 24px rgba(93, 142, 232, 0.28);
+}
+
+.lw-brand-title {
+    font-size: 0.98rem;
+}
+
+.lw-analyst {
+    padding-right: 13px;
+    background: rgba(255,255,255,0.018);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+}
+
+.lw-analyst-avatar {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* ---------- case context ---------- */
+.lw-context-strip {
+    min-height: 46px;
+    background: rgba(7, 10, 16, 0.90);
+    border-bottom-color: rgba(148,163,184,0.12);
+    border-left-width: 4px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+}
+
+.lw-context-item {
+    padding: 6px 17px;
+    transition: background .2s var(--lw-ease);
+}
+
+.lw-context-item:hover {
+    background: rgba(93,142,232,0.045);
+}
+
+.lw-context-label {
+    color: #718096;
+}
+
+.lw-context-value {
+    transition: color .2s var(--lw-ease), transform .2s var(--lw-spring);
+}
+
+.lw-context-item:hover .lw-context-value {
+    transform: translateY(-1px);
+}
+
+.lw-ra-trigger-btn {
+    margin-right: 16px;
+    padding: 7px 13px;
+    border-radius: 8px;
+    background: rgba(93,142,232,0.055);
+    border-color: rgba(93,142,232,0.24);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+    transition: transform .2s var(--lw-spring), border-color .2s var(--lw-ease), background .2s var(--lw-ease), box-shadow .2s var(--lw-ease);
+}
+
+.lw-ra-trigger-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(93,142,232,0.11);
+    border-color: rgba(93,142,232,0.44);
+    box-shadow: 0 7px 18px rgba(0,0,0,0.16);
+}
+
+/* ---------- navigation ---------- */
+.lw-nav {
+    width: 236px;
+    flex-basis: 236px;
+    padding: 16px 11px 24px;
+    background:
+        linear-gradient(180deg, rgba(15,20,30,0.96), rgba(9,13,19,0.98));
+    border-right-color: rgba(148,163,184,0.10);
+    box-shadow: 8px 0 28px rgba(0,0,0,0.10);
+}
+
+.lw-nav-group {
+    margin-bottom: 14px;
+    padding-top: 12px;
+}
+
+.lw-nav-group:not(:first-child) {
+    border-top-color: rgba(148,163,184,0.10);
+}
+
+.lw-nav-group-label {
+    padding: 9px 11px 7px;
+    color: #7b8799;
+    font-size: 0.59rem;
+    letter-spacing: .11em;
+}
+
+.lw-nav-item {
+    min-height: 38px;
+    padding: 9px 11px 9px 13px;
+    gap: 10px;
+    border-radius: 9px;
+    color: #97a4b7;
+    transition:
+        transform .18s var(--lw-spring),
+        background .18s var(--lw-ease),
+        color .18s var(--lw-ease),
+        border-color .18s var(--lw-ease),
+        box-shadow .18s var(--lw-ease);
+}
+
+.lw-nav-item i {
+    width: 16px;
+    font-size: .84rem;
+    transition: transform .18s var(--lw-spring), color .18s var(--lw-ease), opacity .18s var(--lw-ease);
+}
+
+.lw-nav-item:hover {
+    transform: translateX(2px);
+    color: #e8eef8;
+    background: rgba(255,255,255,0.035);
+    border-color: rgba(148,163,184,0.08);
+}
+
+.lw-nav-item:hover i {
+    transform: translateX(1px);
+    color: #9dbfff;
+    opacity: 1;
+}
+
+.lw-nav-item.active {
+    background:
+        linear-gradient(90deg, rgba(93,142,232,0.15), rgba(93,142,232,0.065));
+    border-color: rgba(93,142,232,0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.025),
+        0 8px 18px rgba(0,0,0,0.12);
+}
+
+.lw-nav-item.active::before {
+    width: 3px;
+    top: 5px;
+    bottom: 5px;
+    box-shadow: 0 0 14px rgba(93,142,232,0.35);
+}
+
+.lw-nav-item.active i {
+    transform: scale(1.05);
+}
+
+/* ---------- main canvas ---------- */
+.lw-main {
+    padding: 24px 30px 72px;
+    background:
+        radial-gradient(680px 360px at 88% 0%, rgba(93,142,232,0.025), transparent 68%);
+}
+
+.lw-section.lw-section-active {
+    animation: lwPremiumPageIn .42s var(--lw-ease);
+}
+
+@keyframes lwPremiumPageIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- page headers ---------- */
+.lw-section-head,
+.lw-blotter-head {
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(148,163,184,0.10);
+}
+
+.lw-section-head > *:first-child,
+.lw-blotter-head > *:first-child {
+    position: relative;
+}
+
+.lw-section-head > *:first-child::after,
+.lw-blotter-head > *:first-child::after {
+    content: "";
+    display: block;
+    width: 34px;
+    height: 2px;
+    margin-top: 7px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--lw-steel), transparent);
+    opacity: .8;
+}
+
+/* ---------- panels ---------- */
+.lw-panel,
+.lw-surface {
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.015), transparent 28%),
+        var(--lw-bg-panel);
+    border-color: rgba(148,163,184,0.10);
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.025) inset,
+        0 10px 28px rgba(0,0,0,0.08);
+    transition:
+        transform .22s var(--lw-spring),
+        border-color .22s var(--lw-ease),
+        box-shadow .22s var(--lw-ease),
+        background .22s var(--lw-ease);
+}
+
+.lw-panel:hover,
+.lw-surface:hover {
+    border-color: rgba(116,145,198,0.23);
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.03) inset,
+        0 14px 34px rgba(0,0,0,0.12);
+}
+
+.lw-overview-grid > .lw-panel:hover,
+.lw-overview-grid > .lw-surface:hover {
+    transform: translateY(-2px);
+}
+
+.lw-panel-header {
+    margin-bottom: 13px;
+    padding-bottom: 11px;
+    border-bottom-color: rgba(148,163,184,0.085);
+}
+
+.lw-panel-title {
+    font-size: .68rem;
+    color: #aab5c6;
+}
+
+.lw-panel-title i {
+    color: #70a0f1;
+}
+
+/* ---------- cards / stats ---------- */
+.lw-stat-card {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,0.017), rgba(255,255,255,0.006));
+    border-color: rgba(148,163,184,0.09);
+    border-radius: 10px;
+    padding: 13px 14px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.022);
+    transition:
+        transform .2s var(--lw-spring),
+        border-color .2s var(--lw-ease),
+        background .2s var(--lw-ease),
+        box-shadow .2s var(--lw-ease);
+}
+
+.lw-stat-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, rgba(93,142,232,0.045), transparent 38%);
+    opacity: 0;
+    transition: opacity .22s var(--lw-ease);
+    pointer-events: none;
+}
+
+.lw-stat-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(93,142,232,0.25);
+    background: linear-gradient(180deg, rgba(255,255,255,0.024), rgba(255,255,255,0.008));
+    box-shadow: 0 12px 26px rgba(0,0,0,0.13);
+}
+
+.lw-stat-card:hover::before { opacity: 1; }
+
+.lw-stat-label {
+    color: #728097;
+    margin-bottom: 5px;
+}
+
+.lw-stat-value {
+    font-size: 1.03rem;
+}
+
+/* ---------- risk centerpiece ---------- */
+.lw-overview-top {
+    gap: 22px;
+    margin-bottom: 18px;
+    padding: 2px 2px 4px;
+}
+
+.lw-risk-block {
+    gap: 18px;
+}
+
+.lw-risk-gauge-wrap {
+    width: 128px;
+    height: 128px;
+    filter: drop-shadow(0 10px 24px rgba(0,0,0,0.20));
+}
+
+.lw-risk-gauge-track {
+    stroke: rgba(255,255,255,0.055);
+}
+
+.lw-risk-gauge-fill {
+    filter: drop-shadow(0 0 6px rgba(93,142,232,0.22));
+}
+
+.lw-risk-gauge-fill.lw-risk-medium {
+    filter: drop-shadow(0 0 8px rgba(245,158,11,0.20));
+}
+
+.lw-risk-gauge-fill.lw-risk-high {
+    filter: drop-shadow(0 0 8px rgba(239,68,68,0.22));
+}
+
+.lw-risk-probability {
+    font-size: 2.55rem;
+    letter-spacing: -.035em;
+}
+
+.lw-risk-level {
+    font-size: .7rem;
+    margin-top: 6px;
+}
+
+.lw-decision-badge {
+    padding: 10px 15px;
+    border-radius: 9px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+    transition: transform .2s var(--lw-spring), box-shadow .2s var(--lw-ease);
+}
+
+.lw-decision-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+}
+
+.lw-probability-track {
+    height: 7px;
+    background: rgba(255,255,255,0.045);
+    margin: 12px 0 16px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.20);
+}
+
+.lw-probability-fill {
+    box-shadow: 0 0 12px rgba(93,142,232,0.20);
+}
+
+/* ---------- snapshot links ---------- */
+.lw-snapshot-row {
+    padding: 11px 10px 11px 12px;
+    border-radius: 9px;
+}
+
+.lw-snapshot-row:hover {
+    background: rgba(93,142,232,0.065);
+    transform: translateX(3px);
+}
+
+.lw-snapshot-state {
+    transition: transform .16s var(--lw-spring), color .16s var(--lw-ease);
+}
+
+/* ---------- factor / explanation visuals ---------- */
+.lw-factor-item {
+    padding: 5px 0 7px;
+}
+
+.lw-factor-row {
+    min-height: 24px;
+}
+
+.lw-factor-name {
+    color: #b2bdcc;
+}
+
+.lw-factor-impact {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.025);
+}
+
+.lw-factor-bar-track {
+    height: 7px;
+    background: rgba(255,255,255,0.045);
+}
+
+.lw-factor-bar-fill {
+    box-shadow: 0 0 10px rgba(93,142,232,0.12);
+}
+
+.lw-factor-increasing .lw-factor-bar-fill {
+    box-shadow: 0 0 12px rgba(239,68,68,0.18);
+}
+
+.lw-factor-reducing .lw-factor-bar-fill {
+    box-shadow: 0 0 12px rgba(34,197,94,0.18);
+}
+
+/* ---------- tables ---------- */
+.lw-blotter-wrap {
+    border-color: rgba(148,163,184,0.10);
+    border-radius: 12px;
+    box-shadow: 0 12px 34px rgba(0,0,0,0.10);
+}
+
+.lw-table th {
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.012);
+    border-bottom-color: rgba(148,163,184,0.10);
+}
+
+.lw-table td {
+    padding: 11px 12px;
+}
+
+.lw-table tbody tr:hover {
+    background: rgba(93,142,232,0.045);
+}
+
+.lw-table tbody tr:hover td:first-child {
+    color: #f0f4f9;
+}
+
+/* ---------- buttons ---------- */
+.lw-btn {
+    min-height: 34px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.018), rgba(255,255,255,0.006));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.022);
+    transition:
+        transform .18s var(--lw-spring),
+        border-color .18s var(--lw-ease),
+        color .18s var(--lw-ease),
+        background .18s var(--lw-ease),
+        box-shadow .18s var(--lw-ease),
+        filter .18s var(--lw-ease);
+}
+
+.lw-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.028);
+}
+
+.lw-btn:active:not(:disabled) {
+    transform: translateY(0) scale(.985);
+}
+
+.lw-btn-primary {
+    background: linear-gradient(180deg, #6698f2, #527fce);
+    border-color: rgba(122,164,243,0.65);
+    box-shadow: 0 8px 20px rgba(45,84,151,0.18), inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
+.lw-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.04);
+    box-shadow: 0 12px 24px rgba(45,84,151,0.24), inset 0 1px 0 rgba(255,255,255,0.16);
+}
+
+.lw-btn-approve,
+.lw-btn-reject {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+/* ---------- final decision dock ---------- */
+.lw-decision-dock {
+    left: 26px;
+    bottom: 26px;
+    width: 374px;
+    border-radius: 14px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.018), transparent 22%),
+        rgba(15,21,31,0.98);
+    border-color: rgba(112,145,204,0.28);
+    border-top-width: 3px;
+    box-shadow:
+        0 24px 60px rgba(0,0,0,0.34),
+        0 1px 0 rgba(255,255,255,0.025) inset;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    transition: transform .24s var(--lw-spring), box-shadow .24s var(--lw-ease), border-color .24s var(--lw-ease);
+}
+
+.lw-decision-dock:hover {
+    box-shadow:
+        0 30px 70px rgba(0,0,0,0.40),
+        0 1px 0 rgba(255,255,255,0.03) inset;
+}
+
+.lw-decision-panel-header {
+    padding: 13px 17px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.018), transparent);
+}
+
+.lw-decision-panel-body {
+    padding: 15px 17px 5px;
+}
+
+/* ---------- AI Risk Analyst ---------- */
+.lw-ra-overlay {
+    background: rgba(2,5,10,0.76);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.lw-ra-panel {
+    max-width: 620px;
+    height: min(720px, 90vh);
+    border-radius: 16px;
+    background:
+        radial-gradient(560px 220px at 50% -15%, rgba(93,142,232,0.08), transparent 70%),
+        #0e141e;
+    border-color: rgba(112,145,204,0.28);
+    box-shadow:
+        0 34px 90px rgba(0,0,0,0.46),
+        0 1px 0 rgba(255,255,255,0.035) inset;
+}
+
+.lw-ra-header {
+    padding: 19px 20px 15px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.018), transparent);
+}
+
+.lw-ra-header-title > i {
+    font-size: 1.15rem;
+    filter: drop-shadow(0 0 8px rgba(115,166,255,0.22));
+}
+
+.lw-ra-title {
+    font-size: 1rem;
+    letter-spacing: -.01em;
+}
+
+.lw-ra-app-label {
+    margin-top: 4px;
+    color: #8997aa;
+}
+
+.lw-ra-scope-note {
+    margin: 13px 20px 0;
+    padding: 10px 12px;
+    border-radius: 9px;
+    background: rgba(93,142,232,0.045);
+    border-color: rgba(93,142,232,0.12);
+}
+
+.lw-ra-chip {
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.018);
+    border-color: rgba(148,163,184,0.10);
+    transition: transform .18s var(--lw-spring), background .18s var(--lw-ease), border-color .18s var(--lw-ease), color .18s var(--lw-ease);
+}
+
+.lw-ra-chip:hover {
+    transform: translateY(-1px);
+}
+
+.lw-ra-log {
+    padding: 17px 20px;
+    scroll-behavior: smooth;
+}
+
+.lw-ra-msg {
+    animation: lwRaMessageIn .28s var(--lw-ease);
+}
+
+@keyframes lwRaMessageIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.lw-ra-bubble {
+    max-width: 88%;
+    padding: 12px 14px;
+    border-radius: 13px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.08);
+}
+
+.lw-ra-msg-question .lw-ra-bubble {
+    background: linear-gradient(180deg, rgba(93,142,232,0.16), rgba(93,142,232,0.09));
+}
+
+.lw-ra-msg-answer .lw-ra-bubble {
+    background: linear-gradient(180deg, rgba(255,255,255,0.018), rgba(255,255,255,0.008));
+}
+
+.lw-ra-composer {
+    padding: 14px 20px 18px;
+    background: linear-gradient(180deg, rgba(8,12,18,0.35), rgba(8,12,18,0.72));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.lw-ra-input {
+    min-height: 42px;
+    border-radius: 10px;
+    border-color: rgba(148,163,184,0.12);
+    background: rgba(255,255,255,0.018);
+    transition: border-color .18s var(--lw-ease), box-shadow .18s var(--lw-ease), background .18s var(--lw-ease);
+}
+
+.lw-ra-input:focus {
+    background: rgba(255,255,255,0.025);
+    border-color: rgba(93,142,232,0.42);
+    box-shadow: var(--lw-focus-ring);
+}
+
+/* ---------- anomalies / flags ---------- */
+.lw-flag-item {
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.012), rgba(255,255,255,0.005));
+    transition: transform .18s var(--lw-spring), border-color .18s var(--lw-ease), background .18s var(--lw-ease);
+}
+
+.lw-flag-item:hover {
+    transform: translateX(2px);
+    background: rgba(255,255,255,0.018);
+}
+
+/* ---------- focus states ---------- */
+.lw-btn:focus-visible,
+.lw-nav-item:focus-visible,
+.lw-ra-chip:focus-visible,
+.lw-ra-close-btn:focus-visible,
+.lw-signout:focus-visible {
+    outline: none;
+    box-shadow: var(--lw-focus-ring);
+}
+
+/* ---------- responsive refinements ---------- */
+@media (max-width: 1180px) {
+    .lw-main { padding-left: 22px; padding-right: 22px; }
+    .lw-risk-gauge-wrap { width: 112px; height: 112px; }
+}
+
+@media (max-width: 860px) {
+    .lw-header {
+        height: 56px;
+    }
+    .lw-main {
+        padding: 18px 15px 58px;
+    }
+    .lw-nav {
+        width: 100%;
+        flex-basis: auto;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.10);
+        background: rgba(10,14,21,0.97);
+    }
+    .lw-nav-item:hover { transform: none; }
+    .lw-context-strip {
+        box-shadow: 0 6px 16px rgba(0,0,0,0.10);
+    }
+    .lw-ra-trigger-btn {
+        margin-right: 8px;
+    }
+}
+
+@media (max-width: 700px) {
+    .lw-decision-dock {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        width: auto;
+    }
+    .lw-risk-probability { font-size: 2.15rem; }
+    .lw-ra-panel { border-radius: 14px; }
+}
+
+
+/* =============================================================
+   PHASE 2 — OVERVIEW / DECISION COCKPIT POLISH
+   Visual-only overrides. Existing markup and behavior preserved.
+   ============================================================= */
+
+.lw-section[data-section="assessment"] {
+    max-width: 1480px;
+    margin: 0 auto;
+}
+
+/* Stronger page heading rhythm */
+.lw-section[data-section="assessment"] .lw-grid {
+    gap: 16px;
+}
+
+.lw-section[data-section="assessment"] .lw-overview-grid > .lw-surface {
+    border-color: rgba(112, 145, 204, 0.18);
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.018), rgba(255,255,255,0.004)),
+        var(--lw-bg-panel);
+    box-shadow:
+        0 14px 34px rgba(0, 0, 0, 0.16),
+        inset 0 1px 0 rgba(255,255,255,0.025);
+    transition:
+        transform .22s var(--lw-spring),
+        border-color .22s var(--lw-ease),
+        box-shadow .22s var(--lw-ease);
+}
+
+.lw-section[data-section="assessment"] .lw-overview-grid > .lw-surface:hover {
+    transform: translateY(-2px);
+    border-color: rgba(112, 145, 204, 0.28);
+    box-shadow:
+        0 20px 42px rgba(0, 0, 0, 0.22),
+        inset 0 1px 0 rgba(255,255,255,0.028);
+}
+
+/* Assessment hero */
+.lw-section[data-section="assessment"] #lwAssessmentBody {
+    min-height: 250px;
+    position: relative;
+    background:
+        radial-gradient(460px 210px at 15% 18%, rgba(73,121,209,0.075), transparent 72%),
+        linear-gradient(180deg, rgba(255,255,255,0.012), transparent 34%),
+        var(--lw-bg-panel);
+}
+
+.lw-section[data-section="assessment"] #lwAssessmentBody::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(
+        115deg,
+        transparent 0%,
+        rgba(255,255,255,0.018) 42%,
+        transparent 70%
+    );
+    opacity: .55;
+}
+
+/* Existing generated risk header */
+.lw-section[data-section="assessment"] .lw-overview-top {
+    padding: 2px 2px 4px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid rgba(148,163,184,0.08);
+}
+
+.lw-section[data-section="assessment"] .lw-overview-top-dominant {
+    padding-left: 2px;
+}
+
+/* Risk block gets more presence */
+.lw-section[data-section="assessment"] .lw-risk-block {
+    gap: 20px;
+}
+
+.lw-section[data-section="assessment"] .lw-risk-gauge-wrap {
+    width: 126px;
+    height: 126px;
+}
+
+.lw-section[data-section="assessment"] .lw-risk-gauge {
+    filter: drop-shadow(0 10px 22px rgba(0,0,0,.12));
+}
+
+.lw-section[data-section="assessment"] .lw-risk-gauge-center .lw-risk-probability {
+    font-size: clamp(2.2rem, 4vw, 3rem);
+    letter-spacing: -.045em;
+}
+
+.lw-section[data-section="assessment"] .lw-risk-gauge-center .lw-risk-level {
+    font-size: .63rem;
+    letter-spacing: .08em;
+}
+
+/* Make recommendation feel like a deliberate decision state */
+.lw-section[data-section="assessment"] .lw-decision-badge {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 16px;
+    border-radius: 11px;
+    box-shadow:
+        0 10px 22px rgba(0,0,0,.13),
+        inset 0 1px 0 rgba(255,255,255,.035);
+}
+
+/* Supporting metrics: compact but more visual */
+.lw-section[data-section="assessment"] .lw-stat-row {
+    gap: 10px;
+}
+
+.lw-section[data-section="assessment"] .lw-stat-card {
+    position: relative;
+    min-height: 72px;
+    padding: 13px 14px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.016), rgba(255,255,255,0.004)),
+        var(--lw-bg-well);
+    border-color: rgba(148,163,184,0.085);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.018);
+    transition:
+        transform .18s var(--lw-spring),
+        border-color .18s var(--lw-ease),
+        background-color .18s var(--lw-ease),
+        box-shadow .18s var(--lw-ease);
+}
+
+.lw-section[data-section="assessment"] .lw-stat-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(73,121,209,.28);
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.022), rgba(255,255,255,0.006)),
+        var(--lw-bg-well);
+    box-shadow:
+        0 10px 20px rgba(0,0,0,.12),
+        inset 0 1px 0 rgba(255,255,255,.02);
+}
+
+.lw-section[data-section="assessment"] .lw-stat-label {
+    font-size: .59rem;
+    letter-spacing: .075em;
+}
+
+.lw-section[data-section="assessment"] .lw-stat-value {
+    font-size: 1.08rem;
+    letter-spacing: -.01em;
+}
+
+/* Snapshot panel — make it read as an executive side rail */
+.lw-section[data-section="assessment"] #lwSnapshotPanel {
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.004)),
+        #0f141d;
+}
+
+.lw-section[data-section="assessment"] #lwSnapshotPanel .lw-panel-header {
+    margin-bottom: 8px;
+}
+
+.lw-section[data-section="assessment"] #lwSnapshotPanel .lw-panel-title {
+    font-size: .7rem;
+    color: #c1cad7;
+}
+
+.lw-section[data-section="assessment"] .lw-snapshot-row {
+    padding: 12px 11px 12px 12px;
+    border-left-width: 2px;
+    border-bottom-color: rgba(148,163,184,0.065);
+}
+
+.lw-section[data-section="assessment"] .lw-snapshot-name {
+    font-size: .77rem;
+}
+
+.lw-section[data-section="assessment"] .lw-snapshot-state {
+    font-size: .78rem;
+}
+
+/* Final decision summary should look like a conclusion, not another card */
+.lw-section[data-section="assessment"] #lwSummaryPanel {
+    background: rgba(73,121,209,.025);
+}
+
+.lw-section[data-section="assessment"] #lwSummaryCard {
+    border-radius: 10px;
+}
+
+/* Risk decomposition */
+.lw-section[data-section="assessment"] #lwRiskDecompositionPanel {
+    margin-top: 16px;
+    padding-top: 18px;
+    background:
+        radial-gradient(520px 160px at 92% -20%, rgba(73,121,209,.045), transparent 70%),
+        var(--lw-bg-panel);
+    border-color: rgba(112,145,204,.15);
+    box-shadow:
+        0 14px 30px rgba(0,0,0,.14),
+        inset 0 1px 0 rgba(255,255,255,.02);
+}
+
+.lw-section[data-section="assessment"] #lwRiskDecompositionPanel .lw-panel-header {
+    margin-bottom: 14px;
+}
+
+.lw-section[data-section="assessment"] #lwRiskDecompositionPanel .lw-panel-title {
+    font-size: .7rem;
+    color: #c5cedb;
+}
+
+.lw-section[data-section="assessment"] #lwRiskDecompositionPanel .lw-panel-header .lw-btn {
+    min-height: 32px;
+}
+
+/* Make the two factor columns feel intentional */
+.lw-section[data-section="assessment"] #lwRiskDecompositionBody .lw-factor-groups {
+    gap: 28px;
+}
+
+.lw-section[data-section="assessment"] #lwRiskDecompositionBody .lw-factor-group-title {
+    margin-bottom: 12px;
+    font-size: .67rem;
+}
+
+.lw-section[data-section="assessment"] #lwRiskDecompositionBody .lw-factor-item {
+    padding: 7px 0 8px;
+}
+
+.lw-section[data-section="assessment"] #lwRiskDecompositionBody .lw-factor-name {
+    color: #c0cad7;
+    font-size: .77rem;
+}
+
+.lw-section[data-section="assessment"] #lwRiskDecompositionBody .lw-factor-impact {
+    min-width: 72px;
+    text-align: right;
+}
+
+/* Buttons in the overview: never let the generic hover turn CTAs dark */
+.lw-section[data-section="assessment"] .lw-btn-primary,
+.lw-section[data-section="assessment"] .lw-btn-primary:hover:not(:disabled),
+.lw-section[data-section="assessment"] .lw-btn-primary:active:not(:disabled) {
+    color: #fff !important;
+}
+
+.lw-section[data-section="assessment"] .lw-btn-primary:hover:not(:disabled) {
+    background: #5f8fe8 !important;
+    border-color: #6f9af0 !important;
+    filter: none !important;
+    transform: translateY(-1px);
+}
+
+.lw-section[data-section="assessment"] .lw-btn-primary:active:not(:disabled) {
+    background: #4675c4 !important;
+    border-color: #4675c4 !important;
+    transform: translateY(0);
+}
+
+/* Empty overview state */
+.lw-section[data-section="assessment"] #lwEmptyState {
+    min-height: 248px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.lw-section[data-section="assessment"] #lwEmptyState i {
+    width: 50px;
+    height: 50px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    color: var(--lw-steel);
+    background: rgba(73,121,209,.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.02);
+    margin-bottom: 12px;
+}
+
+/* Smoothly stage the main overview surfaces */
+.lw-section[data-section="assessment"] .lw-overview-grid > .lw-surface:nth-child(1) {
+    animation: lwOverviewLiftIn .42s var(--lw-ease) both;
+}
+.lw-section[data-section="assessment"] .lw-overview-grid > .lw-surface:nth-child(2) {
+    animation: lwOverviewLiftIn .5s .05s var(--lw-ease) both;
+}
+.lw-section[data-section="assessment"] #lwRiskDecompositionPanel {
+    animation: lwOverviewLiftIn .56s .1s var(--lw-ease) both;
+}
+
+@keyframes lwOverviewLiftIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+    .lw-section[data-section="assessment"] .lw-overview-grid > .lw-surface,
+    .lw-section[data-section="assessment"] #lwRiskDecompositionPanel {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* Tighter desktop proportions */
+@media (min-width: 1280px) {
+    .lw-section[data-section="assessment"] .lw-overview-grid {
+        grid-template-columns: minmax(0, 1.45fr) minmax(300px, .55fr);
+    }
+}
+
+@media (max-width: 980px) {
+    .lw-section[data-section="assessment"] .lw-risk-gauge-wrap {
+        width: 112px;
+        height: 112px;
+    }
+
+    .lw-section[data-section="assessment"] .lw-stat-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .lw-section[data-section="assessment"] .lw-overview-grid,
+    .lw-section[data-section="assessment"] #lwRiskDecompositionBody .lw-factor-groups {
+        grid-template-columns: 1fr;
+    }
+
+    .lw-section[data-section="assessment"] .lw-risk-block {
+        align-items: flex-start;
+    }
+
+    .lw-section[data-section="assessment"] .lw-overview-top {
+        align-items: flex-start;
+    }
+
+    .lw-section[data-section="assessment"] .lw-stat-row {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* =============================================================
+   PHASE 3 — REPAYMENT CAPACITY / CASH-FLOW POLISH
+   Visual-only. Existing data, endpoints and JS hooks preserved.
+   ============================================================= */
+
+.lw-section[data-section="affordability"] {
+    max-width: 1480px;
+    margin: 0 auto;
+}
+
+/* Section heading becomes a stronger workspace title without becoming huge. */
+.lw-section[data-section="affordability"] > .lw-blotter-head {
+    margin-bottom: 16px;
+    padding: 2px 2px 12px;
+    border-bottom-color: rgba(112,145,204,.12);
+}
+
+.lw-section[data-section="affordability"] > .lw-blotter-head .lw-panel-title {
+    font-size: .78rem;
+    letter-spacing: .075em;
+    color: #c8d1de;
+}
+
+.lw-section[data-section="affordability"] > .lw-blotter-head .lw-panel-title i {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: rgba(73,121,209,.09);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+}
+
+/* Main repayment content becomes a layered instrument rather than loose cards. */
+#lwAffordabilityBody {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 18px;
+    border: 1px solid rgba(112,145,204,.14);
+    border-radius: 14px;
+    background:
+        radial-gradient(520px 190px at 0% 0%, rgba(73,121,209,.055), transparent 72%),
+        linear-gradient(180deg, rgba(255,255,255,.016), rgba(255,255,255,.004)),
+        var(--lw-bg-panel);
+    box-shadow:
+        0 18px 42px rgba(0,0,0,.18),
+        inset 0 1px 0 rgba(255,255,255,.024);
+}
+
+#lwAffordabilityBody > .lw-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 11px !important;
+    padding-bottom: 9px;
+    border-bottom: 1px solid rgba(148,163,184,.075);
+    color: #bcc7d5;
+    font-size: .69rem;
+    letter-spacing: .08em;
+}
+
+#lwAffordabilityBody > .lw-panel-title i {
+    color: var(--lw-steel);
+}
+
+/* Cash-flow composition is the first visual focal point. */
+#lwAffordabilityBody .lw-cashflow-bar {
+    margin: 3px 0 16px;
+    padding: 13px 14px 12px;
+    border: 1px solid rgba(148,163,184,.07);
+    border-radius: 11px;
+    background: rgba(8,12,18,.42);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.018);
+}
+
+#lwAffordabilityBody .lw-cashflow-bar-track {
+    height: 14px;
+    border-radius: 999px;
+    border-color: rgba(148,163,184,.10);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.28);
+}
+
+#lwAffordabilityBody .lw-cashflow-bar-segment {
+    position: relative;
+    transition:
+        width .75s var(--lw-spring),
+        filter .2s var(--lw-ease);
+}
+
+#lwAffordabilityBody .lw-cashflow-bar-segment:hover {
+    filter: brightness(1.08);
+}
+
+#lwAffordabilityBody .lw-cashflow-obligations {
+    background: linear-gradient(90deg, #526174, #718096);
+}
+
+#lwAffordabilityBody .lw-cashflow-surplus {
+    background: linear-gradient(90deg, #22b76b, #38d486);
+}
+
+#lwAffordabilityBody .lw-cashflow-surplus.state-bad {
+    background: linear-gradient(90deg, #dc4f5a, #ef6a73);
+}
+
+#lwAffordabilityBody .lw-cashflow-bar-legend {
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 9px;
+    font-size: .66rem;
+}
+
+/* Metric rows become more tactile and less spreadsheet-like. */
+#lwAffordabilityBody .lw-stat-row {
+    gap: 10px;
+    margin-bottom: 17px;
+}
+
+#lwAffordabilityBody .lw-stat-row:last-of-type {
+    margin-bottom: 0;
+}
+
+#lwAffordabilityBody .lw-stat-card {
+    position: relative;
+    min-height: 82px;
+    padding: 13px 14px;
+    overflow: hidden;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,.018), rgba(255,255,255,.004)),
+        #0b1018;
+    border-color: rgba(148,163,184,.085);
+    box-shadow:
+        0 7px 18px rgba(0,0,0,.10),
+        inset 0 1px 0 rgba(255,255,255,.016);
+    transition:
+        transform .2s var(--lw-spring),
+        border-color .2s var(--lw-ease),
+        box-shadow .2s var(--lw-ease),
+        background .2s var(--lw-ease);
+}
+
+#lwAffordabilityBody .lw-stat-card::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 14px;
+    right: 14px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(112,145,204,.12), transparent);
+    opacity: .8;
+}
+
+#lwAffordabilityBody .lw-stat-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(73,121,209,.25);
+    box-shadow:
+        0 14px 28px rgba(0,0,0,.16),
+        0 0 0 1px rgba(73,121,209,.03) inset;
+}
+
+#lwAffordabilityBody .lw-stat-label {
+    margin-bottom: 6px;
+    font-size: .60rem;
+    letter-spacing: .075em;
+}
+
+#lwAffordabilityBody .lw-stat-value {
+    font-size: 1.18rem;
+    letter-spacing: -.018em;
+}
+
+/* Draw attention to the most decision-relevant metrics when values are good/bad. */
+#lwAffordabilityBody .lw-stat-value.state-good {
+    color: #41d58a;
+}
+
+#lwAffordabilityBody .lw-stat-value.state-bad {
+    color: #ff727b;
+}
+
+/* Affordability badge gets a richer state treatment without changing its meaning. */
+#lwAffordabilityBody .lw-badge.state-good,
+#lwAffordabilityBody .lw-badge.state-warn,
+#lwAffordabilityBody .lw-badge.state-bad {
+    min-height: 26px;
+    padding: 4px 10px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.028);
+}
+
+/* The explanatory unit note should read like a safety annotation. */
+#lwAffordabilityBody > .lw-panel-note {
+    margin-top: 5px !important;
+    padding: 10px 12px;
+    border: 1px solid rgba(148,163,184,.07);
+    border-radius: 9px;
+    background: rgba(8,12,18,.32);
+    line-height: 1.6;
+    color: var(--lw-text-faint);
+}
+
+#lwAffordabilityBody > .lw-disclaimer {
+    margin-top: 10px !important;
+    border-color: rgba(148,163,184,.09);
+    background: rgba(8,12,18,.42);
+}
+
+/* Make repayment-capacity and current-cash-flow blocks feel separated. */
+#lwAffordabilityBody > .lw-panel-title:nth-of-type(2) {
+    margin-top: 4px !important;
+    padding-top: 6px;
+}
+
+/* Give the affordability area a subtle staged entrance. */
+.lw-section[data-section="affordability"].lw-section-active #lwAffordabilityBody {
+    animation: lwRepaymentSurfaceIn .42s var(--lw-ease) both;
+}
+
+.lw-section[data-section="affordability"].lw-section-active #lwAffordabilityBody .lw-stat-card:nth-child(1) { animation: lwRepaymentCardIn .30s .04s var(--lw-ease) both; }
+.lw-section[data-section="affordability"].lw-section-active #lwAffordabilityBody .lw-stat-card:nth-child(2) { animation: lwRepaymentCardIn .30s .08s var(--lw-ease) both; }
+.lw-section[data-section="affordability"].lw-section-active #lwAffordabilityBody .lw-stat-card:nth-child(3) { animation: lwRepaymentCardIn .30s .12s var(--lw-ease) both; }
+.lw-section[data-section="affordability"].lw-section-active #lwAffordabilityBody .lw-stat-card:nth-child(4) { animation: lwRepaymentCardIn .30s .16s var(--lw-ease) both; }
+
+@keyframes lwRepaymentSurfaceIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes lwRepaymentCardIn {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Blue primary buttons: lively hover state, never black. */
+.lender-workspace .lw-btn-primary,
+.lender-workspace .lw-btn-primary:visited {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    background: var(--lw-steel) !important;
+    border-color: var(--lw-steel) !important;
+    color: #ffffff !important;
+    box-shadow: 0 7px 18px -10px rgba(73,121,209,.72);
+    transform: translateZ(0);
+}
+
+.lender-workspace .lw-btn-primary::after {
+    content: "";
+    position: absolute;
+    top: -80%;
+    bottom: -80%;
+    left: -42%;
+    width: 28%;
+    transform: translateX(-220%) rotate(16deg);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255,255,255,.28),
+        transparent
+    );
+    pointer-events: none;
+    transition: transform .55s var(--lw-ease);
+}
+
+.lender-workspace .lw-btn-primary:hover:not(:disabled) {
+    background: #5f8fe8 !important;
+    border-color: #6b98ee !important;
+    color: #fff !important;
+    filter: none !important;
+    transform: translateY(-2px) translateZ(0);
+    box-shadow:
+        0 11px 26px -11px rgba(73,121,209,.9),
+        0 0 0 1px rgba(124,164,238,.08);
+}
+
+.lender-workspace .lw-btn-primary:hover:not(:disabled)::after {
+    transform: translateX(500%) rotate(16deg);
+}
+
+.lender-workspace .lw-btn-primary:active:not(:disabled) {
+    background: #466fbb !important;
+    border-color: #466fbb !important;
+    color: #fff !important;
+    transform: translateY(0) scale(.985) translateZ(0);
+    box-shadow: 0 4px 12px -9px rgba(73,121,209,.65);
+}
+
+.lender-workspace .lw-btn-primary i {
+    position: relative;
+    z-index: 1;
+    transition: transform .22s var(--lw-spring);
+}
+
+.lender-workspace .lw-btn-primary:hover:not(:disabled) i {
+    transform: translateX(2px) scale(1.04);
+}
+
+.lender-workspace .lw-btn-primary > * {
+    position: relative;
+    z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #lwAffordabilityBody,
+    #lwAffordabilityBody .lw-stat-card,
+    .lender-workspace .lw-btn-primary,
+    .lender-workspace .lw-btn-primary i {
+        animation: none !important;
+        transition: none !important;
+        transform: none !important;
+    }
+    .lender-workspace .lw-btn-primary::after { display: none; }
+}
+
+@media (max-width: 900px) {
+    #lwAffordabilityBody {
+        padding: 14px;
+    }
+
+    #lwAffordabilityBody .lw-stat-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 560px) {
+    #lwAffordabilityBody .lw-stat-row {
+        grid-template-columns: 1fr;
+    }
+
+    #lwAffordabilityBody .lw-cashflow-bar-legend {
+        flex-direction: column;
+        gap: 5px;
+    }
+}
+
+
+/* =============================================================
+   LENDER WORKSPACE — PREMIUM UPGRADE LAYER (v2)
+   Appended, additive only. No selectors above are removed and no
+   JS hooks are touched. Everything is scoped under .lender-workspace
+   so specificity beats the base rules without !important spam.
+   ============================================================= */
+
+/* -------------------------------------------------------------
+   2.1  TOKENS — surface ladder, elevation, semantic colors
+------------------------------------------------------------- */
+.lender-workspace {
+    /* Surface ladder: bg -> workspace -> panel -> subpanel -> control */
+    --lw-bg: #080b11;
+    --lw-bg-panel: #111621;
+    --lw-bg-panel-alt: #0d1119;
+    --lw-bg-well: #0a0e15;
+    --lw-bg-control: #161c29;
+
+    --lw-border: #202736;
+    --lw-border-soft: rgba(148, 163, 184, 0.08);
+    --lw-border-strong: #303a4c;
+
+    --lw-text: #eef1f7;
+    --lw-text-dim: #98a4b8;
+    --lw-text-faint: #616b7d;
+
+    --lw-steel: #4d82e0;
+    --lw-steel-hi: #6a9bf2;
+    --lw-steel-deep: #3767bd;
+    --lw-steel-light: rgba(77, 130, 224, 0.12);
+    --lw-steel-border: rgba(77, 130, 224, 0.36);
+
+    --success: #2fb86b;
+    --success-light: rgba(47, 184, 107, 0.12);
+    --warning: #e0a137;
+    --warning-light: rgba(224, 161, 55, 0.12);
+    --danger: #e2564f;
+    --danger-light: rgba(226, 86, 79, 0.12);
+
+    /* Elevation: selective, never decorative */
+    --lw-elev-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 1px 2px rgba(0, 0, 0, 0.35);
+    --lw-elev-2: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 6px 20px -10px rgba(0, 0, 0, 0.7);
+    --lw-elev-3: 0 24px 60px -24px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.45);
+    --lw-ring: 0 0 0 2px rgba(77, 130, 224, 0.45);
+
+    --lw-t-fast: 150ms;
+    --lw-t-base: 200ms;
+    --lw-t-slow: 250ms;
+
+    font-feature-settings: "cv05" 1, "ss01" 1;
+}
+
+.lender-workspace::before {
+    background:
+        radial-gradient(1100px 640px at 14% -12%, rgba(77, 130, 224, 0.06), transparent 64%),
+        radial-gradient(800px 500px at 100% 0%, rgba(77, 130, 224, 0.035), transparent 60%);
+}
+
+/* -------------------------------------------------------------
+   2.2  TYPOGRAPHY LADDER
+------------------------------------------------------------- */
+.lender-workspace .lw-page-title,
+.lender-workspace .lw-section-head h1,
+.lender-workspace .lw-section-head h2 {
+    font-size: 1.02rem;
+    font-weight: 750;
+    letter-spacing: -0.012em;
+    color: var(--lw-text);
+}
+.lender-workspace .lw-page-sub { font-size: 0.765rem; line-height: 1.5; }
+
+.lender-workspace .lw-panel-title {
+    font-size: 0.735rem;
+    font-weight: 750;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+    color: var(--lw-text-dim);
+}
+.lender-workspace .lw-panel-title i { opacity: 0.9; }
+
+.lender-workspace .lw-stat-value,
+.lender-workspace .lw-risk-probability,
+.lender-workspace .lw-factor-impact,
+.lender-workspace .lw-snapshot-state,
+.lender-workspace .lw-table td {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1;
+}
+.lender-workspace .lw-risk-probability { letter-spacing: -0.03em; }
+.lender-workspace .lw-stat-label,
+.lender-workspace .lw-context-label { font-weight: 750; }
+
+/* -------------------------------------------------------------
+   2.3  HEADER
+------------------------------------------------------------- */
+.lender-workspace .lw-header {
+    background: linear-gradient(180deg, #131926 0%, #0e131d 100%);
+    border-bottom: 1px solid var(--lw-border);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -20px rgba(0, 0, 0, 0.9);
+    backdrop-filter: saturate(120%);
+}
+.lender-workspace .lw-brand-mark {
+    background: linear-gradient(180deg, rgba(77, 130, 224, 0.20), rgba(77, 130, 224, 0.06));
+    border: 1px solid var(--lw-steel-border);
+    color: var(--lw-steel-hi);
+    box-shadow: var(--lw-elev-1);
+    transition: border-color var(--lw-t-base) var(--lw-ease), box-shadow var(--lw-t-base) var(--lw-ease);
+}
+.lender-workspace .lw-brand:hover .lw-brand-mark {
+    border-color: var(--lw-steel);
+    box-shadow: var(--lw-elev-1), 0 0 0 3px rgba(77, 130, 224, 0.10);
+}
+.lender-workspace .lw-brand-product { letter-spacing: -0.015em; font-weight: 800; }
+.lender-workspace .lw-brand-title { color: var(--lw-text-faint); letter-spacing: 0.09em; }
+.lender-workspace .lw-analyst {
+    background: var(--lw-bg-control);
+    border: 1px solid var(--lw-border);
+    box-shadow: var(--lw-elev-1);
+}
+.lender-workspace .lw-analyst-avatar {
+    background: linear-gradient(180deg, var(--lw-steel), var(--lw-steel-deep));
+    color: #fff;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+}
+
+/* -------------------------------------------------------------
+   2.4  CASE CONTEXT BAR
+------------------------------------------------------------- */
+.lender-workspace .lw-context-strip {
+    background: linear-gradient(180deg, #0f1420 0%, #0b0f17 100%);
+    border-bottom: 1px solid var(--lw-border);
+    box-shadow: 0 6px 18px -18px rgba(0, 0, 0, 1);
+}
+.lender-workspace .lw-context-item { border-right-color: var(--lw-border-soft); }
+.lender-workspace .lw-context-label {
+    font-size: 0.58rem;
+    letter-spacing: 0.09em;
+    color: var(--lw-text-faint);
+}
+.lender-workspace .lw-context-value { font-size: 0.78rem; }
+/* Applicant + amount read louder than the rest of the strip */
+.lender-workspace .lw-context-item:first-child .lw-context-value {
+    font-size: 0.85rem;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+}
+.lender-workspace #lwContextAmount {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: var(--lw-text);
+}
+
+/* -------------------------------------------------------------
+   2.5  SIDEBAR
+------------------------------------------------------------- */
+.lender-workspace .lw-nav {
+    background: linear-gradient(180deg, #0e131d 0%, #0a0e15 100%);
+    border-right: 1px solid var(--lw-border);
+}
+.lender-workspace .lw-nav-group-label {
+    font-size: 0.575rem;
+    letter-spacing: 0.13em;
+    color: var(--lw-text-faint);
+    opacity: 0.85;
+}
+.lender-workspace .lw-nav-item {
+    border-radius: var(--lw-radius-sm);
+    font-weight: 600;
+    transition:
+        color var(--lw-t-fast) var(--lw-ease),
+        background-color var(--lw-t-fast) var(--lw-ease),
+        box-shadow var(--lw-t-fast) var(--lw-ease);
+}
+.lender-workspace .lw-nav-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--lw-text);
+}
+.lender-workspace .lw-nav-item:hover i { opacity: 0.95; }
+/* Selected, not a giant blue button */
+.lender-workspace .lw-nav-item.active {
+    background: linear-gradient(90deg, rgba(77, 130, 224, 0.16), rgba(77, 130, 224, 0.04) 70%, transparent);
+    color: var(--lw-text);
+    font-weight: 700;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.lender-workspace .lw-nav-item.active::before {
+    background: var(--lw-steel);
+    box-shadow: 0 0 8px rgba(77, 130, 224, 0.55);
+}
+.lender-workspace .lw-nav-badge {
+    background: var(--lw-steel-light);
+    border: 1px solid var(--lw-steel-border);
+    color: var(--lw-steel-hi);
+    font-variant-numeric: tabular-nums;
+}
+.lender-workspace .lw-nav::-webkit-scrollbar-thumb {
+    background: #26303f;
+    border-radius: var(--lw-radius-full);
+}
+.lender-workspace .lw-nav::-webkit-scrollbar-thumb:hover { background: var(--lw-steel-border); }
+
+/* -------------------------------------------------------------
+   2.6  PANELS / SURFACES
+------------------------------------------------------------- */
+.lender-workspace .lw-panel,
+.lender-workspace .lw-surface {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 42%),
+        var(--lw-bg-panel);
+    border: 1px solid var(--lw-border);
+    box-shadow: var(--lw-elev-2);
+}
+/* Static info panels do not move on hover */
+.lender-workspace .lw-panel:hover,
+.lender-workspace .lw-surface:hover { transform: none; }
+.lender-workspace .lw-panel-header { border-bottom: 1px solid var(--lw-border-soft); }
+.lender-workspace .lw-stat-card {
+    background: var(--lw-bg-well);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+.lender-workspace .lw-stat-card.lw-stat-card-link:hover {
+    border-color: var(--lw-steel-border);
+    box-shadow: var(--lw-elev-1), 0 0 0 1px rgba(77, 130, 224, 0.12);
+    transform: translateY(-1px);
+}
+
+/* -------------------------------------------------------------
+   2.7  BUTTON SYSTEM
+------------------------------------------------------------- */
+.lender-workspace .lw-btn {
+    border-radius: var(--lw-radius-sm);
+    font-weight: 650;
+    letter-spacing: 0.01em;
+    background: var(--lw-bg-control);
+    border: 1px solid var(--lw-border-strong);
+    color: var(--lw-text-dim);
+    box-shadow: var(--lw-elev-1);
+    transition:
+        background-color var(--lw-t-fast) var(--lw-ease),
+        border-color var(--lw-t-fast) var(--lw-ease),
+        color var(--lw-t-fast) var(--lw-ease),
+        box-shadow var(--lw-t-base) var(--lw-ease),
+        transform var(--lw-t-fast) var(--lw-ease);
+}
+.lender-workspace .lw-btn:hover:not(:disabled) {
+    background: #1b2231;
+    border-color: var(--lw-steel-border);
+    color: var(--lw-text);
+    transform: translateY(-1px);
+}
+.lender-workspace .lw-btn:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.lender-workspace .lw-btn:focus-visible { outline: none; box-shadow: var(--lw-ring); }
+.lender-workspace .lw-btn:disabled {
+    opacity: 1;
+    color: var(--lw-text-faint);
+    background: var(--lw-bg-well);
+    border-color: var(--lw-border);
+    box-shadow: none;
+    transform: none;
+    cursor: not-allowed;
+}
+
+/* PRIMARY — must never go dark on hover */
+.lender-workspace .lw-btn-primary,
+.lender-workspace .lw-btn.lw-btn-primary {
+    background: linear-gradient(180deg, var(--lw-steel-hi) 0%, var(--lw-steel) 55%, var(--lw-steel-deep) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #fff;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset, 0 6px 16px -10px rgba(77, 130, 224, 0.9);
+}
+.lender-workspace .lw-btn-primary:hover:not(:disabled),
+.lender-workspace .lw-btn.lw-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, #7fabf7 0%, #5a8ce8 55%, #4275cc 100%);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 10px 24px -12px rgba(77, 130, 224, 0.95);
+}
+.lender-workspace .lw-btn-primary:active:not(:disabled),
+.lender-workspace .lw-btn.lw-btn-primary:active:not(:disabled) {
+    background: linear-gradient(180deg, var(--lw-steel-deep), #2f5aa8);
+    color: #fff;
+    transform: translateY(1px);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+.lender-workspace .lw-btn-primary:disabled,
+.lender-workspace .lw-btn.lw-btn-primary:disabled {
+    background: #27324a;
+    border-color: var(--lw-border-strong);
+    color: rgba(238, 241, 247, 0.45);
+    box-shadow: none;
+}
+
+/* Semantic decision buttons */
+.lender-workspace .lw-btn-approve {
+    background: linear-gradient(180deg, rgba(47, 184, 107, 0.18), rgba(47, 184, 107, 0.08));
+    border-color: rgba(47, 184, 107, 0.45);
+    color: #7de3ab;
+}
+.lender-workspace .lw-btn-approve:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(47, 184, 107, 0.30), rgba(47, 184, 107, 0.14));
+    border-color: var(--success);
+    color: #b6f5d1;
+}
+.lender-workspace .lw-btn-reject,
+.lender-workspace .lw-btn-danger {
+    background: linear-gradient(180deg, rgba(226, 86, 79, 0.16), rgba(226, 86, 79, 0.07));
+    border-color: rgba(226, 86, 79, 0.45);
+    color: #f2938d;
+}
+.lender-workspace .lw-btn-reject:hover:not(:disabled),
+.lender-workspace .lw-btn-danger:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(226, 86, 79, 0.28), rgba(226, 86, 79, 0.12));
+    border-color: var(--danger);
+    color: #ffc4c0;
+}
+
+/* Icon / close buttons */
+.lender-workspace .lw-ra-close-btn,
+.lender-workspace .lw-decision-panel-close {
+    border-radius: var(--lw-radius-sm);
+    transition: background-color var(--lw-t-fast) var(--lw-ease), color var(--lw-t-fast) var(--lw-ease),
+        transform var(--lw-t-fast) var(--lw-ease);
+}
+.lender-workspace .lw-ra-close-btn:hover,
+.lender-workspace .lw-decision-panel-close:hover { transform: rotate(90deg); }
+
+/* -------------------------------------------------------------
+   2.8  QUEUE / BLOTTER
+------------------------------------------------------------- */
+.lender-workspace .lw-blotter-wrap { box-shadow: var(--lw-elev-2); }
+.lender-workspace .lw-table th {
+    background: linear-gradient(180deg, #141a27, #10151f);
+    border-bottom: 1px solid var(--lw-border-strong);
+    color: var(--lw-text-faint);
+    letter-spacing: 0.09em;
+}
+.lender-workspace .lw-table tbody tr {
+    box-shadow: inset 2px 0 0 transparent;
+    transition: background-color var(--lw-t-fast) var(--lw-ease), box-shadow var(--lw-t-fast) var(--lw-ease);
+}
+.lender-workspace .lw-table tbody tr:hover {
+    background: rgba(77, 130, 224, 0.075);
+    box-shadow: inset 2px 0 0 var(--lw-steel);
+}
+.lender-workspace .lw-table td:first-child { color: var(--lw-text); font-weight: 650; }
+
+/* -------------------------------------------------------------
+   2.9  RISK FOCAL POINT
+------------------------------------------------------------- */
+.lender-workspace .lw-overview-top-dominant .lw-risk-gauge-wrap { filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.5)); }
+.lender-workspace .lw-risk-gauge-track { stroke: #131a26; }
+.lender-workspace .lw-risk-gauge-fill { transition: stroke-dashoffset 700ms var(--lw-ease); }
+.lender-workspace .lw-decision-badge { box-shadow: var(--lw-elev-1); }
+.lender-workspace .lw-probability-fill { position: relative; }
+
+/* -------------------------------------------------------------
+   2.10  AI RISK ANALYST
+------------------------------------------------------------- */
+.lender-workspace .lw-ra-overlay { backdrop-filter: blur(3px) saturate(115%); }
+.lender-workspace .lw-ra-panel {
+    background: linear-gradient(180deg, #141a26, #0d1119);
+    border: 1px solid var(--lw-border-strong);
+    box-shadow: var(--lw-elev-3);
+    animation: lwModalIn 220ms var(--lw-ease) both;
+}
+@keyframes lwModalIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.lender-workspace .lw-ra-chip {
+    background: var(--lw-bg-control);
+    border: 1px solid var(--lw-border);
+    transition: background-color var(--lw-t-fast) var(--lw-ease), border-color var(--lw-t-fast) var(--lw-ease),
+        transform var(--lw-t-fast) var(--lw-ease);
+}
+.lender-workspace .lw-ra-chip:hover {
+    border-color: var(--lw-steel-border);
+    background: var(--lw-steel-light);
+    color: var(--lw-text);
+    transform: translateY(-1px);
+}
+.lender-workspace .lw-ra-msg { animation: lwMsgIn 180ms var(--lw-ease) both; }
+@keyframes lwMsgIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.lender-workspace .lw-ra-msg-question .lw-ra-bubble {
+    background: linear-gradient(180deg, rgba(77, 130, 224, 0.22), rgba(77, 130, 224, 0.10));
+    border: 1px solid var(--lw-steel-border);
+    color: var(--lw-text);
+}
+.lender-workspace .lw-ra-msg-answer .lw-ra-bubble {
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border);
+    line-height: 1.6;
+}
+.lender-workspace .lw-ra-input:focus,
+.lender-workspace .lw-field input:focus,
+.lender-workspace .lw-field select:focus {
+    border-color: var(--lw-steel-border);
+    box-shadow: var(--lw-ring);
+    outline: none;
+}
+
+/* -------------------------------------------------------------
+   2.11  DECISION DOCK
+------------------------------------------------------------- */
+.lender-workspace .lw-decision-dock {
+    background: linear-gradient(180deg, #131926, #0c1016);
+    border-top: 1px solid var(--lw-border-strong);
+    box-shadow: 0 -18px 40px -28px rgba(0, 0, 0, 1);
+}
+.lender-workspace .lw-decision-panel-header { border-bottom: 1px solid var(--lw-border-soft); }
+
+/* -------------------------------------------------------------
+   2.12  LOADING / EMPTY STATES
+------------------------------------------------------------- */
+.lender-workspace .lw-loading {
+    position: relative;
+    color: var(--lw-text-faint);
+}
+.lender-workspace .lw-skeleton,
+.lender-workspace .lw-loading::before {
+    display: block;
+    height: 10px;
+    border-radius: var(--lw-radius-full);
+    background: linear-gradient(90deg, #131a26 0%, #1c2534 50%, #131a26 100%);
+    background-size: 220% 100%;
+    animation: lwShimmer 1.25s linear infinite;
+}
+@keyframes lwShimmer {
+    from { background-position: 120% 0; }
+    to { background-position: -120% 0; }
+}
+.lender-workspace .lw-empty {
+    border: 1px dashed var(--lw-border-strong);
+    border-radius: var(--lw-radius);
+    background: rgba(255, 255, 255, 0.012);
+    padding: 26px 18px;
+}
+.lender-workspace .lw-empty i {
+    color: var(--lw-text-faint);
+    background: var(--lw-bg-well);
+    border: 1px solid var(--lw-border);
+    border-radius: var(--lw-radius);
+    padding: 10px;
+}
+
+/* -------------------------------------------------------------
+   2.13  SECTION ENTRANCE
+------------------------------------------------------------- */
+.lender-workspace .lw-section.lw-section-active {
+    animation: lwSectionUp 240ms var(--lw-ease) both;
+}
+@keyframes lwSectionUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* -------------------------------------------------------------
+   2.14  RESPONSIVE SAFETY
+------------------------------------------------------------- */
+@media (max-width: 1180px) {
+    .lender-workspace .lw-context-strip { flex-wrap: wrap; row-gap: 4px; }
+}
+@media (max-width: 860px) {
+    .lender-workspace .lw-nav { max-height: 40vh; overflow-y: auto; }
+    .lender-workspace .lw-ra-panel { width: min(96vw, 640px); max-height: 88vh; }
+    .lender-workspace .lw-decision-panel-actions-row { flex-wrap: wrap; }
+}
+@media (max-height: 720px) {
+    .lender-workspace .lw-decision-dock { max-height: 46vh; overflow-y: auto; }
+}
+
+/* -------------------------------------------------------------
+   2.15  ACCESSIBILITY
+------------------------------------------------------------- */
+.lender-workspace :focus-visible { outline: 2px solid var(--lw-steel); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .lender-workspace *,
+    .lender-workspace *::before,
+    .lender-workspace *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+    .lender-workspace .lw-btn:hover:not(:disabled),
+    .lender-workspace .lw-btn-primary:hover:not(:disabled) { transform: none; }
+}
+
+
+/* =============================================================
+   PHASE 2 — PREMIUM OVERVIEW / DECISION COCKPIT (v3)
+   Scoped strictly to the Overview section
+   (.lw-section[data-section="assessment"]) plus its three panels:
+   #lwAssessmentBody, #lwSnapshotPanel, #lwRiskDecompositionPanel.
+   Additive CSS only — no JS hooks, IDs, markup or logic touched.
+   ============================================================= */
+
+.lender-workspace .lw-section[data-section="assessment"] {
+    --lw-ov-gap: 14px;
+}
+
+/* Layout rhythm ------------------------------------------------ */
+.lender-workspace .lw-section[data-section="assessment"] .lw-overview-grid {
+    gap: var(--lw-ov-gap);
+    align-items: stretch;
+}
+.lender-workspace .lw-section[data-section="assessment"] #lwRiskDecompositionPanel {
+    margin-top: var(--lw-ov-gap);
+}
+
+/* 1. RISK — the dominant object on the screen ------------------ */
+.lender-workspace #lwAssessmentBody {
+    position: relative;
+    overflow: hidden;
+    background:
+        radial-gradient(760px 320px at 8% -30%, rgba(77, 130, 224, 0.10), transparent 62%),
+        linear-gradient(180deg, #141b28 0%, #0e131d 62%);
+    border: 1px solid var(--lw-border-strong);
+    box-shadow: var(--lw-elev-2), 0 28px 60px -44px rgba(0, 0, 0, 1);
+}
+/* thin semantic keyline across the top, tinted by the active risk */
+.lender-workspace #lwAssessmentBody::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--lw-steel), transparent 72%);
+    opacity: 0.75;
+}
+.lender-workspace #lwAssessmentBody:has(.lw-risk-low)::before {
+    background: linear-gradient(90deg, var(--success), transparent 72%);
+}
+.lender-workspace #lwAssessmentBody:has(.lw-risk-medium)::before {
+    background: linear-gradient(90deg, var(--warning), transparent 72%);
+}
+.lender-workspace #lwAssessmentBody:has(.lw-risk-high)::before {
+    background: linear-gradient(90deg, var(--danger), transparent 72%);
+}
+
+.lender-workspace #lwAssessmentBody .lw-overview-top-dominant {
+    padding: 8px 0 12px;
+    gap: 18px;
+}
+.lender-workspace #lwAssessmentBody .lw-risk-gauge-wrap {
+    width: 132px;
+    height: 132px;
+    animation: lwGaugeIn 320ms var(--lw-ease) both;
+}
+@keyframes lwGaugeIn {
+    from { opacity: 0; transform: scale(0.94); }
+    to { opacity: 1; transform: scale(1); }
+}
+.lender-workspace #lwAssessmentBody .lw-risk-gauge-track { stroke: #101723; stroke-width: 9; }
+.lender-workspace #lwAssessmentBody .lw-risk-gauge-fill {
+    stroke-width: 9;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 340ms var(--lw-ease), stroke 200ms var(--lw-ease);
+}
+.lender-workspace #lwAssessmentBody .lw-risk-gauge-center .lw-risk-probability {
+    font-size: 1.62rem;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+}
+.lender-workspace #lwAssessmentBody .lw-risk-gauge-center .lw-risk-level {
+    font-size: 0.55rem;
+    letter-spacing: 0.14em;
+}
+.lender-workspace #lwAssessmentBody .lw-risk-probability { font-size: 2.4rem; }
+
+/* 2. RECOMMENDATION — unmistakable, not an alert banner -------- */
+.lender-workspace #lwAssessmentBody .lw-decision-badge {
+    font-size: 0.86rem;
+    padding: 11px 20px;
+    letter-spacing: 0.09em;
+    border-radius: var(--lw-radius);
+    box-shadow: var(--lw-elev-1), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    animation: lwBadgeIn 260ms var(--lw-ease) 80ms both;
+}
+@keyframes lwBadgeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.lender-workspace #lwAssessmentBody .lw-decision-approve {
+    background: linear-gradient(180deg, rgba(47, 184, 107, 0.20), rgba(47, 184, 107, 0.07));
+}
+.lender-workspace #lwAssessmentBody .lw-decision-review {
+    background: linear-gradient(180deg, rgba(224, 161, 55, 0.20), rgba(224, 161, 55, 0.07));
+}
+.lender-workspace #lwAssessmentBody .lw-decision-reject {
+    background: linear-gradient(180deg, rgba(226, 86, 79, 0.20), rgba(226, 86, 79, 0.07));
+}
+
+/* Probability rail */
+.lender-workspace #lwAssessmentBody .lw-probability-track {
+    height: 8px;
+    background: #10151f;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.lender-workspace #lwAssessmentBody .lw-probability-fill {
+    transition: width 340ms var(--lw-ease);
+    box-shadow: 0 0 12px -2px currentColor;
+    animation: lwFillIn 340ms var(--lw-ease) both;
+}
+@keyframes lwFillIn {
+    from { transform: scaleX(0.2); transform-origin: left; opacity: 0.4; }
+    to { transform: scaleX(1); opacity: 1; }
+}
+
+/* Supporting stat cards stay quieter than risk */
+.lender-workspace #lwAssessmentBody .lw-stat-card { background: rgba(8, 12, 19, 0.65); }
+.lender-workspace #lwAssessmentBody .lw-stat-label { opacity: 0.85; }
+
+/* 3. UNDERWRITING SNAPSHOT — executive summary rail ------------ */
+.lender-workspace #lwSnapshotPanel {
+    background: linear-gradient(180deg, #10151f 0%, #0b0f17 100%);
+    border: 1px solid var(--lw-border);
+    box-shadow: var(--lw-elev-2);
+}
+.lender-workspace #lwSnapshotPanel .lw-panel-header {
+    border-bottom: 1px solid var(--lw-border);
+    padding-bottom: 9px;
+}
+.lender-workspace #lwSnapshotPanel .lw-snapshot-row {
+    padding: 11px 10px 11px 12px;
+    animation: lwSnapRowIn 220ms var(--lw-ease) both;
+}
+.lender-workspace #lwSnapshotPanel .lw-snapshot-row:nth-child(2) { animation-delay: 40ms; }
+.lender-workspace #lwSnapshotPanel .lw-snapshot-row:nth-child(3) { animation-delay: 80ms; }
+.lender-workspace #lwSnapshotPanel .lw-snapshot-row:nth-child(4) { animation-delay: 120ms; }
+@keyframes lwSnapRowIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+.lender-workspace #lwSnapshotPanel .lw-snapshot-row:hover {
+    background: rgba(77, 130, 224, 0.09);
+    border-left-color: var(--lw-steel);
+}
+.lender-workspace #lwSnapshotPanel .lw-snapshot-name {
+    font-size: 0.775rem;
+    letter-spacing: 0.005em;
+}
+.lender-workspace #lwSnapshotPanel .lw-snapshot-state { font-size: 0.755rem; font-weight: 750; }
+
+/* Final Decision Summary reads as the closing block of the rail */
+.lender-workspace #lwSummaryPanel {
+    background: rgba(8, 12, 19, 0.5);
+    border-radius: var(--lw-radius);
+    padding: 12px !important;
+    border-top: 1px solid var(--lw-border-strong) !important;
+    margin-top: 14px !important;
+}
+.lender-workspace #lwSummaryPanel .lw-summary-card { box-shadow: var(--lw-elev-1); }
+
+/* 4. RISK DECOMPOSITION — increasing vs reducing --------------- */
+.lender-workspace #lwRiskDecompositionPanel {
+    background: linear-gradient(180deg, #121724 0%, #0d1119 100%);
+    border: 1px solid var(--lw-border-strong);
+    box-shadow: var(--lw-elev-2);
+}
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-groups {
+    gap: 18px 26px;
+    position: relative;
+}
+/* Two clearly separated columns with a semantic tinted well each */
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-groups > * {
+    background: rgba(8, 12, 19, 0.55);
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius);
+    padding: 14px 15px;
+}
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-groups > *:has(.lw-factor-group-title.increasing) {
+    border-color: rgba(226, 86, 79, 0.22);
+    box-shadow: inset 3px 0 0 rgba(226, 86, 79, 0.45);
+}
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-groups > *:has(.lw-factor-group-title.reducing) {
+    border-color: rgba(47, 184, 107, 0.22);
+    box-shadow: inset 3px 0 0 rgba(47, 184, 107, 0.45);
+}
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-group-title {
+    font-size: 0.655rem;
+    letter-spacing: 0.11em;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--lw-border-soft);
+}
+/* Strongest factor in each group is emphasised */
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-item:first-child .lw-factor-name {
+    color: var(--lw-text);
+    font-weight: 700;
+}
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-item:first-child .lw-factor-impact { font-size: 0.79rem; }
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-item:first-child .lw-factor-bar-track { height: 8px; }
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-item:not(:first-child) .lw-factor-bar-fill { opacity: 0.72; }
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-item {
+    padding: 6px 6px 2px;
+    margin: 0 -6px 6px;
+    border-radius: var(--lw-radius-sm);
+    transition: background-color var(--lw-t-fast) var(--lw-ease);
+}
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-item:hover { background: rgba(255, 255, 255, 0.03); }
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-item:hover .lw-factor-bar-fill { opacity: 1; }
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-bar-track {
+    background: #0c111a;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+.lender-workspace #lwRiskDecompositionPanel .lw-factor-bar-fill {
+    animation: lwBarReveal 320ms var(--lw-ease) both;
+}
+@keyframes lwBarReveal {
+    from { transform: scaleX(0); transform-origin: left; }
+    to { transform: scaleX(1); }
+}
+
+/* 5. Section entrance ------------------------------------------ */
+.lender-workspace .lw-section[data-section="assessment"].lw-section-active > * {
+    animation: lwOverviewIn 260ms var(--lw-ease) both;
+}
+.lender-workspace .lw-section[data-section="assessment"].lw-section-active > *:nth-child(2) {
+    animation-delay: 60ms;
+}
+@keyframes lwOverviewIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 6. Empty state ------------------------------------------------ */
+.lender-workspace #lwEmptyState {
+    padding: 44px 26px;
+    border: 1px dashed var(--lw-border-strong);
+    border-radius: var(--lw-radius-lg);
+    background:
+        radial-gradient(420px 180px at 50% 0%, rgba(77, 130, 224, 0.07), transparent 70%),
+        rgba(255, 255, 255, 0.012);
+}
+.lender-workspace #lwEmptyState i {
+    font-size: 1.25rem;
+    color: var(--lw-steel-hi);
+    background: var(--lw-steel-light);
+    border: 1px solid var(--lw-steel-border);
+    border-radius: var(--lw-radius);
+    padding: 12px;
+    margin-bottom: 12px;
+    box-shadow: var(--lw-elev-1);
+}
+.lender-workspace #lwEmptyState .lw-empty-title {
+    font-size: 0.92rem;
+    color: var(--lw-text);
+    letter-spacing: -0.01em;
+}
+.lender-workspace #lwEmptyState .lw-empty-sub {
+    max-width: 42ch;
+    margin: 6px auto 0;
+    line-height: 1.55;
+}
+
+/* 7. Responsive preservation ------------------------------------ */
+@media (max-width: 1180px) {
+    .lender-workspace #lwRiskDecompositionPanel .lw-factor-groups { grid-template-columns: 1fr; }
+}
+@media (max-width: 860px) {
+    .lender-workspace #lwAssessmentBody .lw-overview-top-dominant { flex-wrap: wrap; gap: 12px; }
+    .lender-workspace #lwAssessmentBody .lw-risk-gauge-wrap { width: 112px; height: 112px; }
+    .lender-workspace #lwAssessmentBody .lw-risk-probability { font-size: 2rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lender-workspace .lw-section[data-section="assessment"] *,
+    .lender-workspace .lw-section[data-section="assessment"] *::before {
+        animation: none !important;
+    }
+}
+
+
+/* =============================================================
+   PHASE 3 — REPAYMENT CAPACITY (premium presentation layer, v3)
+   Appended, additive only. Scoped to #lwAffordabilityBody / .lw-rc.
+   No tokens, no shared components and no earlier selectors changed.
+   ============================================================= */
+
+.lender-workspace #lwAffordabilityBody .lw-rc {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* 1. Verdict banner — top of the hierarchy ---------------------- */
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 16px 20px;
+    border: 1px solid var(--lw-border-soft);
+    border-left-width: 3px;
+    border-radius: var(--lw-radius-lg);
+    background:
+        radial-gradient(680px 180px at 0% 0%, rgba(255, 255, 255, 0.03), transparent 70%),
+        var(--lw-bg-panel-alt);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    animation: lwRcIn 340ms var(--lw-ease) both;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict-value {
+    margin-top: 4px;
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    text-transform: capitalize;
+    line-height: 1.1;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-good {
+    border-left-color: rgba(34, 197, 94, 0.75);
+    background:
+        radial-gradient(680px 180px at 0% 0%, rgba(34, 197, 94, 0.10), transparent 70%),
+        var(--lw-bg-panel-alt);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-warn {
+    border-left-color: rgba(245, 158, 11, 0.75);
+    background:
+        radial-gradient(680px 180px at 0% 0%, rgba(245, 158, 11, 0.10), transparent 70%),
+        var(--lw-bg-panel-alt);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-bad {
+    border-left-color: rgba(239, 68, 68, 0.75);
+    background:
+        radial-gradient(680px 180px at 0% 0%, rgba(239, 68, 68, 0.10), transparent 70%),
+        var(--lw-bg-panel-alt);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-neutral { border-left-color: var(--lw-border-strong); }
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-good .lw-rc-verdict-value { color: #41d58a; }
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-warn .lw-rc-verdict-value { color: #f7b23b; }
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-bad .lw-rc-verdict-value { color: #ff727b; }
+.lender-workspace #lwAffordabilityBody .lw-rc-verdict.tone-neutral .lw-rc-verdict-value { color: var(--lw-text-dim); }
+
+/* 2. The dominant story: surplus -> payment -> headroom ---------- */
+.lender-workspace #lwAffordabilityBody .lw-rc-flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    align-items: stretch;
+    gap: 10px;
+    padding: 20px;
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius-lg);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0.004)),
+        var(--lw-bg-panel);
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.022);
+    animation: lwRcIn 380ms 60ms var(--lw-ease) both;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-node {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    padding: 16px 18px;
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius);
+    background: var(--lw-bg-well);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.016);
+    transition:
+        transform 200ms var(--lw-spring),
+        border-color 200ms var(--lw-ease),
+        box-shadow 200ms var(--lw-ease);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-node:hover {
+    transform: translateY(-2px);
+    border-color: rgba(73, 121, 209, 0.28);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-node .lw-stat-value {
+    font-size: 1.72rem;
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.08;
+    overflow-wrap: anywhere;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-node-result {
+    border-color: rgba(73, 121, 209, 0.3);
+    background:
+        radial-gradient(320px 140px at 100% 0%, rgba(73, 121, 209, 0.10), transparent 70%),
+        var(--lw-bg-well);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-node-result .lw-stat-value { font-size: 1.9rem; }
+.lender-workspace #lwAffordabilityBody .lw-rc-node-note {
+    font-size: 0.64rem;
+    color: var(--lw-text-faint);
+    letter-spacing: 0.02em;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 2px;
+    color: var(--lw-text-faint);
+    font-size: 0.58rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-arrow i { font-size: 0.85rem; color: var(--lw-steel); opacity: 0.85; }
+
+/* 3. Ratios — secondary, deliberately smaller than the flow ------ */
+.lender-workspace #lwAffordabilityBody .lw-rc-ratios {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 0;
+    animation: lwRcIn 380ms 120ms var(--lw-ease) both;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-ratios .lw-stat-card { min-height: 70px; }
+.lender-workspace #lwAffordabilityBody .lw-rc-ratios .lw-stat-value { font-size: 1.06rem; }
+
+/* 4. Cash-flow composition — refined existing bar ---------------- */
+.lender-workspace #lwAffordabilityBody .lw-rc-cashflow {
+    padding: 18px 20px 16px;
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius-lg);
+    background: var(--lw-bg-panel-alt);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.016);
+    animation: lwRcIn 380ms 160ms var(--lw-ease) both;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-cashflow .lw-panel-title { margin-bottom: 6px; }
+.lender-workspace #lwAffordabilityBody .lw-rc-cashflow .lw-cashflow-bar-track { height: 16px; }
+.lender-workspace #lwAffordabilityBody .lw-rc-inputs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--lw-border-soft);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-input {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    padding: 4px 2px;
+    border-radius: var(--lw-radius-sm);
+    transition: background-color 160ms var(--lw-ease);
+}
+.lender-workspace #lwAffordabilityBody .lw-rc-input:hover { background: rgba(255, 255, 255, 0.03); }
+.lender-workspace #lwAffordabilityBody .lw-rc-input .lw-stat-value {
+    font-size: 0.98rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+/* 5. Supporting notes — lowest emphasis ------------------------- */
+.lender-workspace #lwAffordabilityBody .lw-rc > .lw-panel-note {
+    padding: 11px 13px;
+    border: 1px solid var(--lw-border-soft);
+    border-radius: var(--lw-radius);
+    background: rgba(8, 12, 18, 0.36);
+    color: var(--lw-text-faint);
+    line-height: 1.62;
+}
+.lender-workspace #lwAffordabilityBody .lw-rc > .lw-disclaimer {
+    margin: 0;
+    border-color: rgba(148, 163, 184, 0.09);
+    background: rgba(8, 12, 18, 0.42);
+}
+
+/* 6. Empty / loading / error polish (behavior untouched) --------- */
+.lender-workspace #lwAffordabilityBody > .lw-empty-sub,
+.lender-workspace #lwAffordabilityBody > .lw-loading {
+    padding: 34px 22px;
+    border: 1px dashed var(--lw-border-strong);
+    border-radius: var(--lw-radius-lg);
+    background: rgba(255, 255, 255, 0.012);
+    text-align: center;
+}
+.lender-workspace #lwAffordabilityBody > .lw-error-list { margin-top: 0; }
+.lender-workspace #lwAffordabilityBody > .lw-form-actions { margin-top: 12px; }
+
+@keyframes lwRcIn {
+    from { opacity: 0; transform: translateY(9px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 7. Primary buttons stay blue on hover/active/focus ------------- */
+.lender-workspace #lwAffordabilityBody .lw-btn.lw-btn-primary,
+.lender-workspace #lwAffordabilityBody .lw-btn.lw-btn-primary:hover:not(:disabled),
+.lender-workspace #lwAffordabilityBody .lw-btn.lw-btn-primary:active:not(:disabled),
+.lender-workspace #lwAffordabilityBody .lw-btn.lw-btn-primary:focus,
+.lender-workspace #lwAffordabilityBody .lw-btn.lw-btn-primary:focus-visible {
+    color: #fff !important;
+    background: var(--lw-steel) !important;
+    border-color: var(--lw-steel-border) !important;
+}
+.lender-workspace #lwAffordabilityBody .lw-btn.lw-btn-primary:hover:not(:disabled) {
+    background: #5b8ce4 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(73, 121, 209, 0.3);
+}
+.lender-workspace #lwAffordabilityBody .lw-btn.lw-btn-primary:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 3px 10px rgba(73, 121, 209, 0.24);
+}
+
+/* 8. Responsive — stack, never overflow ------------------------- */
+@media (max-width: 1080px) {
+    .lender-workspace #lwAffordabilityBody .lw-rc-flow { grid-template-columns: 1fr; }
+    .lender-workspace #lwAffordabilityBody .lw-rc-arrow { flex-direction: row; gap: 8px; padding: 2px 0; }
+    .lender-workspace #lwAffordabilityBody .lw-rc-arrow i { transform: rotate(90deg); }
+    .lender-workspace #lwAffordabilityBody .lw-rc-arrow .fa-equals { transform: none; }
+}
+@media (max-width: 760px) {
+    .lender-workspace #lwAffordabilityBody .lw-rc-verdict { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .lender-workspace #lwAffordabilityBody .lw-rc-ratios,
+    .lender-workspace #lwAffordabilityBody .lw-rc-inputs { grid-template-columns: 1fr; }
+    .lender-workspace #lwAffordabilityBody .lw-rc-node .lw-stat-value,
+    .lender-workspace #lwAffordabilityBody .lw-rc-node-result .lw-stat-value { font-size: 1.45rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lender-workspace #lwAffordabilityBody .lw-rc,
+    .lender-workspace #lwAffordabilityBody .lw-rc * {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+

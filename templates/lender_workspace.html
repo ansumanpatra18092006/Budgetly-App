@@ -60,32 +60,41 @@
                 <span class="lw-context-label">Status</span>
                 <span class="lw-context-value lw-context-muted" id="lwContextStatus">—</span>
             </div>
+            <!-- PHASE 9 — AI Risk Analyst trigger. Hidden by default;
+                 lwUpdateContextStrip() only reveals it once currentApplication
+                 has a persisted assessment_result. -->
+            <button type="button" id="lwAskRiskAnalystBtn" class="lw-ra-trigger-btn" style="display:none;">
+                <i class="fa-solid fa-user-shield"></i> Ask Risk Analyst
+            </button>
         </div>
 
         <div class="lw-desk">
             <nav class="lw-nav">
                 <div class="lw-nav-group">
-                    <div class="lw-nav-group-label">Worklist</div>
+                    <div class="lw-nav-group-label">Work Queue</div>
                     <button type="button" class="lw-nav-item active" data-section="queue"><i
                             class="fa-solid fa-inbox"></i>
                         Queue</button>
                 </div>
                 <div class="lw-nav-group">
-                    <div class="lw-nav-group-label">Case</div>
+                    <div class="lw-nav-group-label">Case Review</div>
                     <button type="button" class="lw-nav-item" data-section="application" style="display:none;"><i
                             class="fa-solid fa-file-invoice"></i> Application</button>
                     <button type="button" class="lw-nav-item" data-section="assessment"><i
                             class="fa-solid fa-gauge-high"></i>
-                        Assessment Overview</button>
+                        Overview</button>
                     <button type="button" class="lw-nav-item" data-section="affordability"><i
                             class="fa-solid fa-sack-dollar"></i> Repayment Capacity</button>
                     <button type="button" class="lw-nav-item" data-section="evidence"><i
                             class="fa-solid fa-file-lines"></i>
                         Borrower Evidence</button>
+                </div>
+                <div class="lw-nav-group">
+                    <div class="lw-nav-group-label">Risk Analysis</div>
                     <button type="button" class="lw-nav-item" data-section="explain"><i
                             class="fa-solid fa-magnifying-glass-chart"></i> Decision Explanation</button>
                     <button type="button" class="lw-nav-item" data-section="anomaly"><i
-                            class="fa-solid fa-triangle-exclamation"></i> Application Anomaly</button>
+                            class="fa-solid fa-triangle-exclamation"></i> Anomaly Detection</button>
                     <button type="button" class="lw-nav-item" data-section="scenario"><i class="fa-solid fa-flask"></i>
                         Scenario Analysis</button>
                 </div>
@@ -556,6 +565,53 @@
                 <div class="lw-confirm-actions">
                     <button type="button" class="lw-btn" id="lwConfirmModalCancel">Cancel</button>
                     <button type="button" class="lw-btn lw-btn-primary" id="lwConfirmModalConfirm">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================
+             PHASE 9 — AI RISK ANALYST
+             Q&A over the CURRENT application's already-persisted
+             assessment_result. Never computes a new score, never makes
+             an approve/reject call — see services/risk_assistant_service.py.
+             Scoped lender-workspace CSS (.lw-ra-*), same dark-navy
+             underwriting-terminal treatment as the rest of the panel —
+             deliberately not styled like a generic chat product.
+        ============================================================= -->
+        <div id="lwRiskAssistantModal" class="lw-ra-overlay" style="display:none;">
+            <div class="lw-ra-panel" role="dialog" aria-modal="true" aria-labelledby="lwRaTitle" tabindex="-1">
+                <div class="lw-ra-header">
+                    <div class="lw-ra-header-title">
+                        <i class="fa-solid fa-user-shield"></i>
+                        <div>
+                            <div id="lwRaTitle" class="lw-ra-title">AI Risk Analyst</div>
+                            <div class="lw-ra-app-label" id="lwRaAppLabel">—</div>
+                        </div>
+                    </div>
+                    <button type="button" class="lw-ra-close-btn" id="lwRaCloseBtn" aria-label="Close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="lw-ra-scope-note">
+                    <i class="fa-solid fa-circle-info"></i>
+                    Answers are grounded only in this application's existing assessment. It will not
+                    calculate a new risk score or make a decision for you.
+                </div>
+
+                <div class="lw-ra-suggested" id="lwRaSuggested"></div>
+
+                <div class="lw-ra-log" id="lwRaLog"></div>
+
+                <div class="lw-ra-composer">
+                    <div id="lwRaComposerError" class="lw-ra-composer-error hidden"></div>
+                    <div class="lw-ra-composer-row">
+                        <textarea id="lwRaQuestionInput" class="lw-ra-input" rows="1"
+                            placeholder="Ask about this application's assessment…" maxlength="500"></textarea>
+                        <button type="button" class="lw-btn lw-btn-primary lw-ra-ask-btn" id="lwRaAskBtn">
+                            <i class="fa-solid fa-paper-plane"></i> Ask
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

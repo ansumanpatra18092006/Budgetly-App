@@ -201,6 +201,17 @@ def confirm_upi_transaction():
     category    = (data.get("category") or "").strip()
     date        = data.get("date") or datetime.today().strftime("%Y-%m-%d")
     upi_ref     = (data.get("upi_ref") or "")[:100]
+    transaction_timestamp = None
+    raw_timestamp = data.get("transaction_timestamp") or data.get("timestamp")
+    if raw_timestamp:
+        try:
+            transaction_timestamp = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+            if transaction_timestamp.tzinfo is not None:
+                transaction_timestamp = transaction_timestamp.replace(tzinfo=None)
+        except ValueError:
+            transaction_timestamp = None
+    if transaction_timestamp is None and date == datetime.today().strftime("%Y-%m-%d"):
+        transaction_timestamp = datetime.now().replace(microsecond=0)
 
     # Auto-detect category if blank or "auto-detect"
     if not category or category.lower() == "auto-detect":
@@ -220,13 +231,22 @@ def confirm_upi_transaction():
         note = description
         if upi_ref:
             note = f"{description} [UPI:{upi_ref}]"
+            existing = conn.execute(
+                "SELECT id FROM transactions WHERE user_id=%s AND reference_id=%s LIMIT 1",
+                (user_id, upi_ref)
+            ).fetchone()
+            if existing:
+                conn.commit()
+                return jsonify({"success": True, "transaction_id": existing["id"], "duplicate": True})
 
         cur = conn.execute(
             """INSERT INTO transactions
-               (user_id, description, amount, type, category, date, status)
-               VALUES (%s, %s, %s, 'expense', %s, %s, 'completed')
+               (user_id, description, amount, type, category, date, status,
+                transaction_timestamp, reference_id, source)
+               VALUES (%s, %s, %s, 'expense', %s, %s, 'completed', %s, %s, %s)
                RETURNING id""",
-            (user_id, note, amount, category, date)
+            (user_id, note, amount, category, date, transaction_timestamp,
+             upi_ref or None, "UPI")
         )
         tx_id = cur.fetchone()["id"]
         conn.commit()

@@ -3,9 +3,11 @@
 ================================================================ */
 async function loadDashboard() {
     updateDate();
+    // fetchBudget() depends on currentSummary.expense (set by fetchSummary())
+    // via checkBudgetWarning(), so it must not race against it.
+    await fetchSummary();
+    await fetchBudget();
     await Promise.all([
-        fetchSummary(),
-        fetchBudget(),
         loadCharts(),
         loadHealth(),
         loadTopCategories(),
@@ -78,32 +80,77 @@ function checkBudgetWarning(budget, expense) {
     warning.classList.toggle('hidden', !(budget > 0 && expense > budget));
 }
 
+/*
+ * OLD FLOW:  dashboard.js → GET /health-metrics → legacy locally-labeled score
+ * NEW FLOW:  dashboard.js → GET /api/insights/unified → financial_health
+ *            → authoritative score/savings/budget (same object Web Insights
+ *            and Flutter already read). No score is computed here; the
+ *            backend's calculate_financial_health() in ml/risk_model.py is
+ *            the single source of truth.
+ *
+ * Field names below are taken from the actual financial_health payload as
+ * already consumed by static/js/insights.js (renderFinancialHealthSection):
+ *   financial_health.score
+ *   financial_health.summary.current_savings_rate
+ *   financial_health.budget.budget_usage_pct
+ * financial_health has no income-stability figure — ml/risk_model.py's
+ * calculate_financial_health() does not compute one — so that factor is
+ * intentionally left on its previous /health-metrics-backed source
+ * (loadIncomeStability) instead of being invented here.
+ */
 async function loadHealth() {
-    const res = await authFetch('/health-metrics');
+    const res = await authFetch('/api/insights/unified');
     if (!res) return;
 
     try {
         const data = await res.json();
-        const d = data.data ?? data;
+        const health = data.financial_health || {};
 
-        const score = d.health_score ?? 0;
-        const sr = d.savings_rate ?? 0;
-        const ba = d.budget_adherence ?? 0;
-        const is_ = d.income_stability ?? 0;
+        // health.score is null when status === 'insufficient_data'.
+        const score = typeof health.score === 'number' ? health.score : 0;
+        const sr = health.summary?.current_savings_rate ?? 0;
+
+        // Budget Adherence isn't a field risk_model.py returns directly;
+        // it's mathematically derived from the authoritative
+        // budget_usage_pct (how much of the budget has been used), not a
+        // second independent calculation. No budget set → usage is null →
+        // fall back to 0, same as the other factors above.
+        const usage = health.budget?.budget_usage_pct;
+        const ba = (usage === null || usage === undefined) ? 0 : Math.max(0, Math.min(100, 100 - usage));
 
         setEl('healthScore', score);
         setEl('healthLabel', getHealthLabel(score));
         const circle = document.querySelector('.score-circle');
         if (circle) circle.style.setProperty('--score', Math.min(score, 100));
         setEl('savingsRate', sr + '%');
-        setEl('budgetAdherence', ba + '%');
-        setEl('incomeStability', is_ + '%');
+        setEl('budgetAdherence', Math.round(ba) + '%');
 
         setWidth('savingsBar', Math.min(sr, 100));
         setWidth('budgetBar', Math.min(ba, 100));
-        setWidth('incomeBar', Math.min(is_, 100));
     } catch (e) {
         console.error('loadHealth parse error', e);
+    }
+
+    loadIncomeStability();
+}
+
+// Income Stability has no equivalent in the unified financial_health
+// payload, so — per "leave the existing factor behavior untouched" — it
+// keeps reading /health-metrics for this one value only. Nothing here
+// feeds the health score or any other factor above.
+async function loadIncomeStability() {
+    const res = await authFetch('/health-metrics');
+    if (!res) return;
+
+    try {
+        const data = await res.json();
+        const d = data.data ?? data;
+        const is_ = d.income_stability ?? 0;
+
+        setEl('incomeStability', is_ + '%');
+        setWidth('incomeBar', Math.min(is_, 100));
+    } catch (e) {
+        console.error('loadIncomeStability parse error', e);
     }
 }
 

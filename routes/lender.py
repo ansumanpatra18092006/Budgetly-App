@@ -51,6 +51,7 @@ from services.credit_risk_service import (
 )
 from services.financial_behavior_service import get_financial_behavior_profile
 from services.affordability_service import calculate_affordability
+from services.risk_assistant_service import answer_risk_assistant_question
 
 # Scenario Analysis (PHASE 7) may only vary these fields for a stored
 # application. Anything else in the request body is ignored — the
@@ -911,4 +912,123 @@ def decide_lender_application(application_id):
         "updated_at": updated["updated_at"].isoformat() if updated["updated_at"] else None,
         "decided_at": updated["decided_at"].isoformat() if updated["decided_at"] else None,
         "decided_by": updated["decided_by"],
+    })
+
+
+# ---------------------------------------------------------------------
+# PHASE 9 — "AI Risk Analyst" Q&A over an application's EXISTING,
+# already-computed assessment.
+#
+# This endpoint never calculates a new risk score and never makes an
+# independent approve/reject decision. It:
+#   1. Verifies the logged-in lender can access the application, using
+#      the exact same `lender_id = session["user_id"]` ownership filter
+#      as every other endpoint in this file (same 404-for-both pattern
+#      for "not yours" vs "doesn't exist").
+#   2. Loads the AUTHORITATIVE, already-PERSISTED assessment_result
+#      (written by POST /lender/applications/<id>/assess) — it is read
+#      here, never recomputed.
+#   3. Builds a compact evidence context (services/risk_assistant_service.py)
+#      from the same non-scoring, read-only calls other lender endpoints
+#      already use (explanation, anomaly, affordability, borrower
+#      financial behavior) — no raw transaction history is sent.
+#   4. Sends that context + the lender's question to the existing Gemini
+#      service (services/gemini_service.generate_json) and returns its
+#      answer verbatim.
+# ---------------------------------------------------------------------
+
+@lender_bp.route("/lender/risk-assistant", methods=["POST"])
+@lender_required
+def risk_assistant():
+    """
+    POST /lender/risk-assistant
+    Body: {"application_id": <int>, "question": "<str>"}
+    Returns: {"success": true, "answer": "<str>"} on success, or
+             {"success": false, "error": "<str>"} on failure.
+    """
+    lender_id = session["user_id"]
+
+    body = request.get_json(silent=True)
+    if body is None or not isinstance(body, dict):
+        return jsonify({
+            "success": False,
+            "error": "Request body must be a JSON object.",
+        }), 400
+
+    raw_application_id = body.get("application_id")
+    try:
+        application_id = int(raw_application_id)
+    except (TypeError, ValueError):
+        return jsonify({
+            "success": False,
+            "error": "application_id must be a valid application id.",
+        }), 400
+
+    question = body.get("question")
+    question = question.strip() if isinstance(question, str) else ""
+    if not question:
+        return jsonify({
+            "success": False,
+            "error": "question must not be empty.",
+        }), 400
+
+    # Ownership: identical pattern to every other endpoint in this file.
+    # An application belonging to another lender matches zero rows and
+    # gets the same 404 as a nonexistent id, so this never confirms or
+    # denies another lender's application ids (i.e. "unauthorized" and
+    # "missing" are intentionally indistinguishable to the caller).
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """
+            SELECT id, borrower_id, application_data, assessment_result
+            FROM loan_applications
+            WHERE id = %s AND lender_id = %s
+            """,
+            (application_id, lender_id),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        abort(404)
+
+    assessment_result = _parse_jsonb(row["assessment_result"])
+    if not assessment_result:
+        # Nothing authoritative to ground the assistant in yet — this
+        # deliberately does NOT fall back to running a fresh assessment
+        # here; that only ever happens via POST .../assess.
+        return jsonify({
+            "success": False,
+            "error": "This application has not been assessed yet. Run the risk assessment first.",
+        }), 422
+
+    applicant = _parse_application_data(row["application_data"])
+    borrower_id = row["borrower_id"]
+
+    try:
+        result = answer_risk_assistant_question(
+            applicant=applicant,
+            borrower_id=borrower_id,
+            assessment_result=assessment_result,
+            question=question,
+        )
+    except Exception:
+        return jsonify({
+            "success": False,
+            "error": "The AI risk analyst failed unexpectedly. Please try again.",
+        }), 500
+
+    if not isinstance(result, dict) or result.get("status") != "success":
+        errors = result.get("errors") if isinstance(result, dict) else None
+        message = errors[0] if errors else "The AI risk analyst is currently unavailable."
+        status_code = 502 if isinstance(result, dict) and result.get("error_type") == "gemini_error" else 422
+        return jsonify({
+            "success": False,
+            "error": message,
+        }), status_code
+
+    return jsonify({
+        "success": True,
+        "answer": result["answer"],
     })
