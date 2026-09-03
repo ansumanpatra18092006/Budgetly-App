@@ -762,6 +762,7 @@ def unified_insights():
         },
 
         "recommendations": recs.get("recommendations", []),
+        "recovery_plan": recs.get("overspending_recovery"),
     }
 
     return jsonify(payload)

@@ -951,6 +951,155 @@ def _apply_semantic_dedup(recs):
     return out
 
 
+
+def _build_overspending_recovery(health, goal_details=None, category_trends=None):
+    """Build a concise, evidence-backed recovery plan for Action Plan.
+
+    This is intentionally a derived view over already-computed canonical
+    health/budget/goal/category signals. It does not query the database or
+    create a second financial model.
+    """
+    if not health:
+        return None
+
+    cash_flow = health.get("cash_flow") or {}
+    budget = health.get("budget") or {}
+    current_surplus = cash_flow.get("current_surplus")
+    projected_surplus = cash_flow.get("projected_surplus")
+    projected_expense = cash_flow.get("projected_expense")
+    current_savings_rate = cash_flow.get("current_savings_rate")
+    score = health.get("score")
+    goal_pressure = (health.get("summary") or {}).get("goal_pressure")
+    budget_status = budget.get("budget_status")
+    current_budget_pct = budget.get("budget_usage_pct")
+    projected_budget_pct = budget.get("projected_budget_usage_pct")
+
+    # Recovery trigger: current/projected deficit, or clear budget breach.
+    deficit = None
+    if projected_surplus is not None and projected_surplus < 0:
+        deficit = abs(float(projected_surplus))
+    elif current_surplus is not None and current_surplus < 0:
+        deficit = abs(float(current_surplus))
+
+    budget_over = None
+    if projected_budget_pct is not None and projected_budget_pct > 100:
+        projected_budget = health.get("budget", {}).get("budget_amount")
+        if projected_budget is not None and projected_expense is not None:
+            budget_over = max(0.0, float(projected_expense) - float(projected_budget))
+
+    if deficit is None and not (projected_budget_pct is not None and projected_budget_pct > 100) \
+            and not (current_budget_pct is not None and current_budget_pct > 100) \
+            and not (goal_pressure is not None and goal_pressure >= 75 and (projected_surplus or 0) < 0):
+        return None
+
+    drivers = []
+    if category_trends:
+        candidates = []
+        for c in category_trends:
+            amount = c.get("amount")
+            baseline = c.get("baseline_amount")
+            category = c.get("category")
+            if amount is None or baseline is None or category is None:
+                continue
+            try:
+                opportunity = float(amount) - float(baseline)
+            except (TypeError, ValueError):
+                continue
+            if opportunity > 0:
+                candidates.append((opportunity, category))
+        for opportunity, category in sorted(candidates, reverse=True)[:2]:
+            drivers.append({"category": category, "reduction_opportunity": round(opportunity, 0)})
+
+    actions = []
+    remaining_target = deficit or 0.0
+    if drivers:
+        first = drivers[0]
+        suggested_cut = round(min(first["reduction_opportunity"], max(0.0, remaining_target or first["reduction_opportunity"])))
+        if suggested_cut > 0:
+            actions.append({
+                "title": f"Trim {first['category']}",
+                "action": f"Cut about ₹{suggested_cut:,.0f} from {first['category'].lower()} spending this month.",
+                "estimated_recovery": suggested_cut,
+                "source": "category_baseline_opportunity",
+            })
+
+    if len(actions) < 3 and deficit is not None and deficit > 0:
+        cut = round(min(deficit, max(300.0, deficit * 0.5)))
+        if cut > 0:
+            actions.append({
+                "title": "Pause discretionary spending",
+                "action": f"Free up roughly ₹{cut:,.0f} by pausing non-essential purchases until your surplus recovers.",
+                "estimated_recovery": cut,
+                "source": "projected_deficit",
+            })
+
+    if len(actions) < 3 and projected_budget_pct is not None and projected_budget_pct > 100:
+        actions.append({
+            "title": "Protect the remaining budget",
+            "action": "Avoid new non-essential charges until projected budget usage returns below 100%.",
+            "estimated_recovery": None,
+            "source": "projected_budget_breach",
+        })
+
+    if len(actions) < 3 and goal_details:
+        risky = [g for g in goal_details if g.get("goal_risk") in ("medium", "high") and g.get("monthly_required")]
+        risky.sort(key=lambda g: float(g.get("monthly_required") or 0), reverse=True)
+        if risky:
+            g = risky[0]
+            actions.append({
+                "title": f"Protect {g.get('name') or 'your goal'}",
+                "action": f"Keep optional spending lower until you can cover about ₹{float(g['monthly_required']):,.0f}/month for this goal.",
+                "estimated_recovery": None,
+                "source": "goal_affordability",
+            })
+
+    recovery = sum(float(a.get("estimated_recovery") or 0) for a in actions)
+    before_surplus = projected_surplus if projected_surplus is not None else current_surplus
+    after_surplus = (float(before_surplus) + recovery) if before_surplus is not None else None
+
+    severity = "high"
+    if deficit is not None and projected_expense and float(projected_expense) > 0:
+        ratio = deficit / float(projected_expense)
+        severity = "critical" if ratio >= 0.15 else "high"
+    elif projected_budget_pct is not None and projected_budget_pct <= 115:
+        severity = "medium"
+
+    plan = {
+        "active": True,
+        "severity": severity,
+        "title": "Get Back on Track",
+        "message": (
+            f"Your projected monthly balance is ₹{abs(float(before_surplus)) if before_surplus is not None and float(before_surplus) < 0 else float(before_surplus or 0):,.0f} "
+            f"below target." if before_surplus is not None and float(before_surplus) < 0 else
+            "Your spending pace is putting the monthly plan under pressure."
+        ),
+        "actions": actions[:3],
+        "drivers": drivers,
+        "before": {
+            "projected_surplus": round(float(before_surplus), 0) if before_surplus is not None else None,
+            "goal_pressure": round(float(goal_pressure), 0) if goal_pressure is not None else None,
+            "health_score": int(score) if score is not None else None,
+            "savings_rate": round(float(current_savings_rate), 1) if current_savings_rate is not None else None,
+            "budget_usage_pct": round(float(current_budget_pct), 1) if current_budget_pct is not None else None,
+        },
+        "after": {
+            "projected_surplus": round(after_surplus, 0) if after_surplus is not None else None,
+            "goal_pressure": None,
+            "health_score": None,
+        },
+        "estimated_recovery": round(recovery, 0),
+        "disclaimer": "Estimates show the effect of the suggested spending changes; actual results depend on future transactions.",
+    }
+
+    # Populate simple projected health/pressure deltas only when the canonical
+    # signals needed for that projection are available; otherwise leave null.
+    if score is not None and recovery > 0:
+        plan["after"]["health_score"] = min(100, int(round(float(score) + min(12, recovery / max(abs(float(before_surplus or 0)), 1) * 8))))
+    if goal_pressure is not None and recovery > 0:
+        plan["after"]["goal_pressure"] = max(0, int(round(float(goal_pressure) - min(20, recovery / max(abs(float(before_surplus or 0)), 1) * 10))))
+
+    return plan
+
 def get_financial_recommendations(
     user_id=None,
     income=None,
@@ -1041,7 +1190,11 @@ def get_financial_recommendations(
     if len(deduped) < 2 and len(deduped) < max_recommendations:
         deduped += _rec_generic(max_recommendations - len(deduped))
 
-    return _finalize(deduped, max_recommendations)
+    result = _finalize(deduped, max_recommendations)
+    result["overspending_recovery"] = _build_overspending_recovery(
+        health, goal_details=goal_details, category_trends=category_trends
+    )
+    return result
 
 
 def _finalize(recs, max_recommendations):
