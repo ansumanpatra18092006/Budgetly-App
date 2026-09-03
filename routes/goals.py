@@ -569,7 +569,22 @@ def _compute_roadmap(goal: dict, metrics: dict, avg_income: float,
     # Primary: actual surplus from live metrics (current month).
     # Fallback: 3-month average cash flow.
     # Last resort: 5 % of target (minimum ₹1 000) so we never divide by zero.
-    surplus_live     = float(metrics.get("surplus", 0))
+    #
+    # The unified metrics layer intentionally returns None for some fields when
+    # there is insufficient history (for example expense_change when the previous
+    # month has no spend). Roadmap generation must preserve that semantic state
+    # instead of calling float(None).
+    def _metric_float(key: str, default: float = 0.0) -> float:
+        value = metrics.get(key)
+        if value is None or value == "":
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            logger.warning("Invalid roadmap metric %s=%r; using %s", key, value, default)
+            return default
+
+    surplus_live     = _metric_float("surplus")
     avg_monthly_flow = max(0.0, avg_income - avg_expense)
     monthly_capacity = (
         surplus_live if surplus_live > 0
@@ -578,14 +593,17 @@ def _compute_roadmap(goal: dict, metrics: dict, avg_income: float,
     )
 
     # ── 5. Difficulty ─────────────────────────────────────────────
-    savings_rate    = float(metrics.get("savings_rate",    0))
-    budget_used_pct = float(metrics.get("budget_used_pct", 0))
-    expense_change  = float(metrics.get("expense_change",  0))
-    top_cat         = metrics.get("top_cat_name", "discretionary spending")
-    top_pct         = float(metrics.get("top_cat_pct",     0))
-    income          = float(metrics.get("income",          0))
-    expense         = float(metrics.get("expense",         0))
-    daily_burn      = float(metrics.get("daily_burn",      0))
+    savings_rate    = _metric_float("savings_rate")
+    budget_used_pct = _metric_float("budget_used_pct")
+    # None means there is no previous-month baseline. Keep it distinct from
+    # zero internally; use 0 only for the roadmap's optional comparison text.
+    expense_change_raw = metrics.get("expense_change")
+    expense_change = None if expense_change_raw is None else _metric_float("expense_change")
+    top_cat         = metrics.get("top_cat_name") or "discretionary spending"
+    top_pct         = _metric_float("top_cat_pct")
+    income          = _metric_float("income")
+    expense         = _metric_float("expense")
+    daily_burn      = _metric_float("daily_burn")
 
     if monthly_capacity <= 0 or savings_rate < 5:
         difficulty = "Hard"
@@ -726,7 +744,7 @@ def _compute_roadmap(goal: dict, metrics: dict, avg_income: float,
         risks.append(f"Savings rate is only {savings_rate:.0f}% — below the recommended 10% minimum")
     if budget_used_pct > 80:
         risks.append(f"Budget usage at {budget_used_pct:.0f}% — overspend risk is elevated")
-    if expense_change > 20:
+    if expense_change is not None and expense_change > 20:
         risks.append(
             f"Expenses rose {expense_change:.0f}% vs last month — review {top_cat} category"
         )
