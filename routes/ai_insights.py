@@ -18,6 +18,7 @@ from ml.forecast_model import predict_next_month_comprehensive
 from services.goal_pressure import calculate_goal_pressure
 from services.financial_health_snapshot import compute_health_for_context
 from ml.recommender import get_financial_recommendations
+from services.recovery_engine import build_recovery_plan
 from ml.anomaly_model import detect_category_anomalies
 
 ai_insights_bp = Blueprint("ai_insights", __name__)
@@ -688,6 +689,22 @@ def unified_insights():
         spending_trend_pct=m["expense_change"],
     )
 
+    recovery_plan = build_recovery_plan(
+        metrics={
+            **m,
+            "monthly_burden": monthly_burden,
+            "confirmed_monthly_cost": confirmed_monthly_cost,
+            "recurring_bill_monthly_burden": recurring_bill_monthly_burden,
+            "remaining_recurring_this_month": remaining_recurring_this_month,
+        },
+        health=health,
+        forecast=forecast,
+        current_category_totals=current_month_category_totals,
+        category_history=category_history,
+        recurring_items=recurring_items,
+        subscription_summary=subscription_summary,
+    )
+
     # Fix (category trend false zeroes): forecast["category_forecasts"]
     # can label a category "down"/"₹0" purely because the CURRENT
     # calendar month has no transactions for it yet, which is not the
@@ -762,7 +779,7 @@ def unified_insights():
         },
 
         "recommendations": recs.get("recommendations", []),
-        "recovery_plan": recs.get("overspending_recovery"),
+        "recovery_plan": recovery_plan,
     }
 
     return jsonify(payload)
