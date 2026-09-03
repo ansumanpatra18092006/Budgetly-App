@@ -30,6 +30,7 @@ def dashboard_summary():
             FROM transactions
             WHERE user_id = %s
               AND date >= %s
+              AND status <> 'failed'
             """,
             (user_id, month_start),
         ).fetchone()
@@ -94,6 +95,7 @@ def category_data():
             WHERE user_id = %s
               AND type    = 'expense'
               AND date   >= %s
+              AND status <> 'failed'
             GROUP BY category
             HAVING SUM(amount) > 0
             ORDER BY total DESC
@@ -125,6 +127,7 @@ def monthly_trend():
                 COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
             FROM transactions
             WHERE user_id = %s
+              AND status <> 'failed'
             GROUP BY month
             ORDER BY month ASC
             """,
@@ -163,6 +166,7 @@ def balance_trend():
                 COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
             FROM transactions
             WHERE user_id = %s
+              AND status <> 'failed'
             GROUP BY month
             ORDER BY month DESC
             LIMIT 2
@@ -253,6 +257,7 @@ def top_categories():
             WHERE user_id = %s
               AND type    = 'expense'
               AND date   >= %s
+              AND status <> 'failed'
             GROUP BY category
             ORDER BY total DESC
             LIMIT 5

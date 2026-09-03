@@ -107,8 +107,9 @@ async function loadHealth() {
         const health = data.financial_health || {};
 
         // health.score is null when status === 'insufficient_data'.
-        const score = typeof health.score === 'number' ? health.score : 0;
-        const sr = health.summary?.current_savings_rate ?? 0;
+        const scoreKnown = typeof health.score === 'number';
+        const score = scoreKnown ? health.score : 0;
+        const sr = health.summary?.current_savings_rate ?? null;
 
         // Budget Adherence isn't a field risk_model.py returns directly;
         // it's mathematically derived from the authoritative
@@ -118,14 +119,14 @@ async function loadHealth() {
         const usage = health.budget?.budget_usage_pct;
         const ba = (usage === null || usage === undefined) ? 0 : Math.max(0, Math.min(100, 100 - usage));
 
-        setEl('healthScore', score);
-        setEl('healthLabel', getHealthLabel(score));
+        setEl('healthScore', scoreKnown ? score : '—');
+        setEl('healthLabel', scoreKnown ? getHealthLabel(score) : 'Insufficient data');
         const circle = document.querySelector('.score-circle');
         if (circle) circle.style.setProperty('--score', Math.min(score, 100));
-        setEl('savingsRate', sr + '%');
+        setEl('savingsRate', sr === null ? '—' : sr + '%');
         setEl('budgetAdherence', Math.round(ba) + '%');
 
-        setWidth('savingsBar', Math.min(sr, 100));
+        setWidth('savingsBar', sr === null ? 0 : Math.min(sr, 100));
         setWidth('budgetBar', Math.min(ba, 100));
     } catch (e) {
         console.error('loadHealth parse error', e);

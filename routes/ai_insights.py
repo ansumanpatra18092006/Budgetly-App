@@ -15,7 +15,8 @@ from services.recurring_service import (
     get_upcoming_recurring,
 )
 from ml.forecast_model import predict_next_month_comprehensive
-from ml.risk_model import calculate_financial_health
+from services.goal_pressure import calculate_goal_pressure
+from services.financial_health_snapshot import compute_health_for_context
 from ml.recommender import get_financial_recommendations
 from ml.anomaly_model import detect_category_anomalies
 
@@ -41,6 +42,13 @@ def _get_month_bounds():
         prev_start   = last_of_prev.strftime("%Y-%m-01")
         prev_end     = last_of_prev.strftime("%Y-%m-%d")
     return cur_start, prev_start, prev_end
+
+
+def _current_month_end_exclusive():
+    today = datetime.today()
+    if today.month == 12:
+        return f"{today.year + 1}-01-01"
+    return f"{today.year:04d}-{today.month + 1:02d}-01"
 
 
 def _parse_target_date(value):
@@ -85,6 +93,19 @@ def _parse_target_date(value):
     return None
 
 
+def _income_stability_from_history(rows):
+    """Return a bounded income-stability score from recent monthly income."""
+    values = [float(r["inc"] or 0) for r in rows]
+    if len(values) < 2 or max(values) <= 0:
+        return None
+    mean = sum(values) / len(values)
+    if mean <= 0:
+        return None
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    cv = (variance ** 0.5) / mean
+    return round(max(0.0, min(100.0, 100.0 / (1.0 + cv))), 1)
+
+
 def _fetch_full_metrics(conn, user_id):
     """
     Unified metrics layer — single source of truth for all intelligence
@@ -96,6 +117,7 @@ def _fetch_full_metrics(conn, user_id):
       - combined_risk  : blended risk from expense ratio + goal pressure.
     """
     cur_start, prev_start, prev_end = _get_month_bounds()
+    cur_end = _current_month_end_exclusive()
     today = datetime.today()
 
     # ── Current month income / expense ──────────────────────────
@@ -103,15 +125,15 @@ def _fetch_full_metrics(conn, user_id):
         SELECT
             COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
-        FROM transactions WHERE user_id=%s AND date>=%s
-    """, (user_id, cur_start)).fetchone()
+        FROM transactions WHERE user_id=%s AND date>=%s AND date<%s AND status <> 'failed'
+    """, (user_id, cur_start, cur_end)).fetchone()
 
     # ── Previous month ───────────────────────────────────────────
     prev = conn.execute("""
         SELECT
             COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
-        FROM transactions WHERE user_id=%s AND date>=%s AND date<=%s
+        FROM transactions WHERE user_id=%s AND date>=%s AND date<=%s AND status <> 'failed'
     """, (user_id, prev_start, prev_end)).fetchone()
 
     # ── Budget ───────────────────────────────────────────────────
@@ -123,9 +145,9 @@ def _fetch_full_metrics(conn, user_id):
     # ── Top spending category ────────────────────────────────────
     top_cat = conn.execute("""
         SELECT COALESCE(category,'Misc') AS category, SUM(amount) AS total
-        FROM transactions WHERE user_id=%s AND type='expense' AND date>=%s
+        FROM transactions WHERE user_id=%s AND type='expense' AND date>=%s AND date<%s AND status <> 'failed'
         GROUP BY category ORDER BY total DESC LIMIT 1
-    """, (user_id, cur_start)).fetchone()
+    """, (user_id, cur_start, cur_end)).fetchone()
 
     # ── Goals with full detail ───────────────────────────────────
     goal_rows = conn.execute(
@@ -139,14 +161,14 @@ def _fetch_full_metrics(conn, user_id):
         SELECT to_char(date,'YYYY-MM') AS month,
                SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS inc,
                SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS exp
-        FROM transactions WHERE user_id=%s
+        FROM transactions WHERE user_id=%s AND status <> 'failed'
         GROUP BY month ORDER BY month DESC LIMIT 3
     """, (user_id,)).fetchall()
 
     # ── Anomaly count (last 30 days) ─────────────────────────────
     recent_amounts_row = conn.execute("""
         SELECT amount FROM transactions
-        WHERE user_id=%s AND type='expense' ORDER BY date ASC
+        WHERE user_id=%s AND type='expense' AND status <> 'failed' ORDER BY date ASC
     """, (user_id,)).fetchall()
 
     # ═══════════════════════════════════════════════════════════
@@ -159,14 +181,23 @@ def _fetch_full_metrics(conn, user_id):
     budget    = float(budget_row["amount"] or 0) if budget_row else 0.0
     p_expense = float(prev["expense"] or 0)
     p_income  = float(prev["income"] or 0)
+    income_stability = _income_stability_from_history(hist_rows)
 
     savings_rate    = round(surplus / income * 100, 1)          if income  > 0 else 0.0
     budget_used_pct = round(expense / budget * 100, 1)          if budget  > 0 else 0.0
-    expense_change  = round((expense - p_expense) / p_expense * 100, 1) if p_expense > 0 else 0.0
+    # No previous-month spend means there is no defensible percentage change.
+    # Returning 0 here used to create a fake "stable" trend and, on an
+    # otherwise empty account, supplied the trend component with a full score.
+    expense_change  = round((expense - p_expense) / p_expense * 100, 1) if p_expense > 0 else None
 
-    days_passed  = max(today.day, 1)
-    days_left    = max(30 - days_passed, 0)
-    daily_burn   = expense / days_passed
+    if today.month == 12:
+        next_month = datetime(today.year + 1, 1, 1)
+    else:
+        next_month = datetime(today.year, today.month + 1, 1)
+    days_in_month = (next_month - datetime(today.year, today.month, 1)).days
+    days_passed = min(max(today.day, 1), days_in_month)
+    days_left = max(days_in_month - days_passed, 0)
+    daily_burn = expense / days_passed if days_passed > 0 else 0.0
 
     top_cat_name  = top_cat["category"] if top_cat else "N/A"
     top_cat_total = float(top_cat["total"] or 0) if top_cat else 0.0
@@ -266,37 +297,15 @@ def _fetch_full_metrics(conn, user_id):
         float(g["monthly_required"] or 0) for g in goal_details if g["remaining"] > 0
     )
 
-    if total_monthly_required <= 0:
-        # Nothing currently required (no active goals, or every active
-        # goal has no computable monthly requirement) → no pressure.
-        goal_pressure = 0.0
-    elif avg_monthly_surplus <= 0:
-        # Money is required and there's no surplus at all to cover it.
-        goal_pressure = 95.0
-    else:
-        coverage_ratio = avg_monthly_surplus / total_monthly_required
-        if   coverage_ratio >= 1.5:  goal_pressure = 15.0  # low
-        elif coverage_ratio >= 1.0:  goal_pressure = 35.0  # manageable
-        elif coverage_ratio >= 0.75: goal_pressure = 60.0  # elevated
-        elif coverage_ratio >= 0.50: goal_pressure = 80.0  # high
-        else:                        goal_pressure = 95.0  # critical
-
-        # Small, capped urgency bump — only when a goal is both
-        # underfunded-relative-to-surplus AND overdue/imminent. This is
-        # deliberately a single flat bump (not per-goal, not
-        # multiplicative) so a portfolio-wide affordability pressure
-        # that's already "high" isn't inflated further by the same
-        # underlying shortfall being counted twice.
-        has_urgent_shortfall = any(
-            g["remaining"] > 0
-            and g["goal_risk"] == "high"
-            and (g["months_left"] is None or g["months_left"] <= 2)
-            for g in goal_details
-        )
-        if has_urgent_shortfall:
-            goal_pressure = min(100.0, goal_pressure + 10.0)
-
-    goal_pressure = round(goal_pressure, 1)
+    # Canonical goal pressure: affordability of required monthly contributions
+    # against sustainable current cash headroom. This is shared with purchase
+    # preview so a proposed expense can change pressure instead of merely
+    # repeating the pre-transaction value.
+    goal_pressure = calculate_goal_pressure(
+        goal_details,
+        avg_monthly_surplus,
+        current_surplus=surplus,
+    )
 
     # ═══════════════════════════════════════════════════════════
     # COMBINED RISK SCORE
@@ -323,7 +332,8 @@ def _fetch_full_metrics(conn, user_id):
         savings_rate=savings_rate, budget_used_pct=budget_used_pct,
         expense_change=expense_change, p_income=p_income, p_expense=p_expense,
         days_left=days_left, days_passed=days_passed, daily_burn=daily_burn,
-        today_day=today.day,
+        income_stability=income_stability,
+        today_day=today.day, days_in_month=days_in_month,
         # ── Category intelligence ────────────────────────────
         top_cat_name=top_cat_name, top_cat_pct=top_cat_pct,
         # ── Goal intelligence (NEW) ──────────────────────────
@@ -368,7 +378,7 @@ def _fetch_monthly_expense_history(conn, user_id, months=12):
                EXTRACT(MONTH FROM date)::int AS month_num,
                COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS total
         FROM transactions
-        WHERE user_id=%s
+        WHERE user_id=%s AND status <> 'failed'
         GROUP BY month, month_num
         ORDER BY month ASC
     """, (user_id,)).fetchall()
@@ -386,7 +396,7 @@ def _fetch_category_history(conn, user_id, months=6):
                COALESCE(category,'Misc') AS category,
                SUM(amount) AS total
         FROM transactions
-        WHERE user_id=%s AND type='expense'
+        WHERE user_id=%s AND type='expense' AND status <> 'failed'
         GROUP BY month, category
         ORDER BY month ASC
     """, (user_id,)).fetchall()
@@ -472,7 +482,7 @@ def _fetch_anomaly_input(conn, user_id):
     rows = conn.execute("""
         SELECT id, amount, category, description
         FROM transactions
-        WHERE user_id=%s AND type='expense'
+        WHERE user_id=%s AND type='expense' AND status <> 'failed'
         ORDER BY date ASC
     """, (user_id,)).fetchall()
     return [
@@ -601,51 +611,34 @@ def unified_insights():
         category_history=category_history,
     )
 
-    # ── Financial health / risk (Part G) — the finalized risk model,
-    # called once; NOT the old routes/insights.py probability model. ───
-    goals_at_risk_count = sum(1 for g in m["goal_details"] if g["goal_risk"] in ("medium", "high"))
-
-    # Fix (income==0 must not read as 0% savings): m["savings_rate"] is
-    # computed in _fetch_full_metrics as 0.0 when income == 0 (a
-    # display-friendly default for legacy consumers of that dict), not a
-    # real "0% savings rate". calculate_financial_health() already has
-    # correct zero-income handling (savings_rate_input=None + income==0
-    # => "unavailable" / "no_income", never a fabricated 0%) - but only
-    # if we don't pass it an explicit override that looks like real
-    # data. Only pass the explicit rate through when income actually
-    # exists; otherwise let the model derive its own (correct) state.
-    savings_rate_arg = m["savings_rate"] if m["income"] > 0 else None
-
-    # Fix (no goals must not mean goal pressure = 0): with no goals
-    # configured, m["goal_pressure"]/m["total_monthly_required"] are 0.0
-    # (again, a legacy-friendly default), not a real "0 pressure"
-    # measurement. Passed as-is, they make calculate_financial_health()
-    # treat goal pressure as explicitly known-and-comfortable and
-    # generate a positive "goals are comfortably supported" factor that
-    # has no basis, since the user has no goals at all. Only pass goal
-    # figures through when at least one goal actually exists.
-    has_goals = bool(m["goal_details"])
-    goal_pressure_arg = m["goal_pressure"] if has_goals else None
-    total_required_monthly_arg = m["total_monthly_required"] if has_goals else None
-    available_surplus_arg = m["avg_monthly_surplus"] if has_goals else None
-
-    health = calculate_financial_health(
-        income=m["income"],
-        current_expense=m["expense"],
-        budget=m["budget"],
-        projected_expense=forecast.get("forecast"),
-        recurring_burden=monthly_burden,
-        subscription_burden=confirmed_monthly_cost,
-        recurring_bill_burden=recurring_bill_monthly_burden,
+    # ── Financial health / risk (Part G) — canonical shared engine. ──
+    health = compute_health_for_context(
+        m,
+        forecast,
+        monthly_burden=monthly_burden,
+        confirmed_monthly_cost=confirmed_monthly_cost,
+        recurring_bill_monthly_burden=recurring_bill_monthly_burden,
         remaining_recurring_this_month=remaining_recurring_this_month,
-        goal_pressure=goal_pressure_arg,
-        total_required_monthly=total_required_monthly_arg,
-        available_surplus=available_surplus_arg,
-        goals_at_risk=goals_at_risk_count,
-        savings_rate=savings_rate_arg,
-        spending_trend_pct=m["expense_change"],
-        days_passed=m["days_passed"],
         days_in_month=days_in_month,
+    )
+
+    # Canonical current-period values travel with the canonical health object.
+    # This prevents Flutter from combining a health score from this endpoint
+    # with income/expense/budget values from a separate, independently timed
+    # dashboard request.
+    health["current"] = {
+        "income": m["income"],
+        "expense": m["expense"],
+        "surplus": m["surplus"],
+        "balance": m["surplus"],
+        "budget": m["budget"],
+    }
+    health["summary"]["avg_monthly_surplus"] = m["avg_monthly_surplus"]
+    health["summary"]["total_monthly_required"] = m["total_monthly_required"]
+    health["summary"]["goals_at_risk"] = goals_at_risk_count
+    health["summary"]["income_stability"] = m.get("income_stability")
+    health["summary"]["budget_adherence"] = (
+        max(0.0, 100.0 - m["budget_used_pct"]) if m["budget"] > 0 else None
     )
 
     # Fix (Section 8/9 — no-income wording): rephrase the one risk
@@ -806,8 +799,9 @@ def ai_insights():
             "level": "medium", "type": "trend"
         })
 
-    # Expense spike
-    if m["expense_change"] > 30:
+    # Expense spike — only report a percentage change when a real
+    # previous-month baseline exists.
+    if m["expense_change"] is not None and m["expense_change"] > 30:
         insights.append({
             "message": f"Expenses up {m['expense_change']}% vs last month (₹{int(m['p_expense'])} → ₹{int(m['expense'])}). {m['top_cat_name']} is {m['top_cat_pct']}% of spend.",
             "level": "high", "type": "category"
@@ -863,56 +857,35 @@ def ai_insights():
 @ai_insights_bp.route("/risk-score")
 @login_required
 def risk_score():
-    conn = get_db()
-    try:
-        m = _fetch_full_metrics(conn, session["user_id"])
-    finally:
-        _safe_close(conn)
+    """Backward-compatible alias for the canonical unified health score."""
+    response = unified_insights()
+    payload = response.get_json() or {}
+    health = payload.get("financial_health") or {}
+    summary = health.get("summary") or {}
+    score = health.get("score")
+    risk_level = health.get("risk_level") or "insufficient_data"
 
-    score = 100
-
-    # Savings rate deductions
-    if   m["savings_rate"] < 5:   score -= 30
-    elif m["savings_rate"] < 15:  score -= 15
-    elif m["savings_rate"] < 25:  score -= 5
-
-    # Budget deductions
-    if   m["budget_used_pct"] > 90: score -= 25
-    elif m["budget_used_pct"] > 75: score -= 12
-    elif m["budget_used_pct"] > 50: score -= 5
-
-    # Expense growth deductions
-    if   m["expense_change"] > 40: score -= 20
-    elif m["expense_change"] > 20: score -= 10
-
-    # Goal-pressure deductions (NEW)
-    if   m["goal_pressure"] > 80: score -= 20
-    elif m["goal_pressure"] > 60: score -= 12
-    elif m["goal_pressure"] > 40: score -= 5
-
-    # Per-goal funding check (NEW)
-    for g in m["goal_details"]:
-        if g["target_amount"] > 0:
-            if g["progress_percent"] < 10:
-                score -= 5
-            if g["goal_risk"] == "high":
-                score -= 5
-
-    score = max(0, min(100, score))
-
-    if   score >= 70: risk, tip = "low",    f"Stable. Savings {m['savings_rate']}%, budget {m['budget_used_pct']}% used. Goal pressure: {m['goal_pressure']:.0f}/100."
-    elif score >= 40: risk, tip = "medium", f"Moderate risk. Budget {m['budget_used_pct']}% used, goal pressure {m['goal_pressure']:.0f}/100."
-    else:             risk, tip = "high",   f"High risk! Budget {m['budget_used_pct']}% used, savings {m['savings_rate']}%, goal pressure {m['goal_pressure']:.0f}/100."
+    if score is None:
+        return jsonify({
+            "health_score": None,
+            "risk_level": "insufficient_data",
+            "tooltip": "Insufficient data to calculate a reliable financial health score.",
+            "savings_rate": summary.get("current_savings_rate"),
+            "budget_used": (health.get("budget") or {}).get("budget_usage_pct"),
+            "goal_pressure": summary.get("goal_pressure"),
+            "combined_risk": "insufficient_data",
+            "combined_risk_score": None,
+        })
 
     return jsonify({
-        "health_score":      score,
-        "risk_level":        risk,
-        "tooltip":           tip,
-        "savings_rate":      m["savings_rate"],
-        "budget_used":       m["budget_used_pct"],
-        "goal_pressure":     m["goal_pressure"],
-        "combined_risk":     m["combined_risk"],
-        "combined_risk_score": m["combined_risk_score"],
+        "health_score": score,
+        "risk_level": risk_level,
+        "tooltip": summary.get("health_status") or "Canonical financial health score.",
+        "savings_rate": summary.get("current_savings_rate"),
+        "budget_used": (health.get("budget") or {}).get("budget_usage_pct"),
+        "goal_pressure": summary.get("goal_pressure"),
+        "combined_risk": risk_level,
+        "combined_risk_score": round(100 - float(score), 1),
     })
 
 
@@ -936,8 +909,9 @@ def insight_badge():
         if   m["savings_rate"] < 5:  high   += 1
         elif m["savings_rate"] < 15: medium += 1
 
-    if   m["expense_change"] > 30: high   += 1
-    elif m["expense_change"] > 15: medium += 1
+    if m["expense_change"] is not None:
+        if m["expense_change"] > 30: high += 1
+        elif m["expense_change"] > 15: medium += 1
 
     # Goal pressure badge (NEW)
     if   m["goal_pressure"] > 70: high   += 1
@@ -1064,7 +1038,7 @@ def behavioral_patterns():
             SELECT to_char(date,'YYYY-MM') AS month,
                    COALESCE(category,'Misc') AS category,
                    SUM(amount) AS total
-            FROM transactions WHERE user_id=%s AND type='expense'
+            FROM transactions WHERE user_id=%s AND type='expense' AND status <> 'failed'
             GROUP BY month, category ORDER BY month DESC
         """, (user_id,)).fetchall()
         rate_rows = conn.execute("""

@@ -40,19 +40,36 @@ function _renderAIInsights(insights) {
 // ── 2+3. RISK SCORE + NAV BADGE ──────────────────────────────────
 async function loadRiskScore() {
     try {
-        const res = await authFetch("/risk-score");
+        const res = await authFetch("/api/insights/unified");
         if (!res) return;
-        _renderRiskIndicator(await res.json());
+        const data = await res.json();
+        const health = data.financial_health || {};
+        _renderRiskIndicator({
+            health_score: health.score,
+            risk_level: health.risk_level || "insufficient_data",
+            tooltip: (health.main_risk_factors || []).slice(0, 2).join(" "),
+        });
     } catch (e) { }
 }
 
 function _renderRiskIndicator(data) {
     const el = document.getElementById("riskIndicator");
     if (!el) return;
-    const icons = { low: "fa-shield-check", medium: "fa-shield-halved", high: "fa-shield-exclamation" };
-    const lv = data.risk_level || "low";
+    const icons = {
+        low: "fa-shield-check",
+        medium: "fa-shield-halved",
+        high: "fa-shield-exclamation",
+        healthy: "fa-shield-check",
+        good: "fa-shield-check",
+        moderate: "fa-shield-halved",
+        elevated_risk: "fa-shield-exclamation",
+        high_risk: "fa-shield-exclamation",
+        insufficient_data: "fa-circle-question",
+    };
+    const lv = data.risk_level || "insufficient_data";
+    const score = typeof data.health_score === "number" ? data.health_score : "—";
     el.innerHTML = `<div class="risk-dot risk-dot-${lv}" title="${escapeHtml(data.tooltip || "")}">
-        <i class="fa-solid ${icons[lv]}"></i><span>${data.health_score}</span></div>`;
+        <i class="fa-solid ${icons[lv] || icons.insufficient_data}"></i><span>${score}</span></div>`;
 }
 
 async function loadNavBadge() {

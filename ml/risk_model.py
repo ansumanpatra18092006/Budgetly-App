@@ -165,31 +165,17 @@ def _savings_component(income, current_expense, reliable_projected_expense, savi
 def _budget_component(current_expense, budget, has_context):
     """Budget-adherence component.
 
-    When no budget exists, the resulting score is a deliberate POLICY
-    PENALTY ("score_basis": "policy_penalty") for the absence of a
-    stated spending plan - it is not a measurement of financial risk
-    and should not be read as "this person is 40% risky". Everywhere
-    else, "score_basis" is "measured" (derived from actual usage vs.
-    a real budget).
+    A missing/zero budget is *unavailable*, not evidence of poor financial
+    health. The final score excludes this component and renormalizes the
+    remaining available components. When a real budget exists, usage is
+    measured directly from actual expenses versus that budget.
     """
     weight = WEIGHTS["budget"]
 
-    if budget is None or budget == 0:
-        if not has_context:
-            # No budget AND no income/expense context at all - there's
-            # nothing to penalize against, so mark unavailable rather than
-            # fabricating a penalty out of thin air.
-            return {"available": False, "score": None, "weight": weight,
-                    "value": None, "unit": "percent_used", "status": "unavailable",
-                    "budget_status": "no_budget", "score_basis": None}
-        # No usable budget, but there IS other financial data: do NOT
-        # treat this as compliant. Apply an explicit, clearly-labeled
-        # policy penalty rather than excluding the component or awarding
-        # full marks.
-        score = weight * 0.4
-        return {"available": True, "score": score, "weight": weight,
-                "value": None, "unit": "percent_used", "status": "no_budget",
-                "budget_status": "no_budget", "score_basis": "policy_penalty"}
+    if budget is None or budget <= 0:
+        return {"available": False, "score": None, "weight": weight,
+                "value": None, "unit": "percent_used", "status": "unavailable",
+                "budget_status": "no_budget", "score_basis": None}
 
     if current_expense is None:
         return {"available": False, "score": None, "weight": weight,
@@ -210,7 +196,6 @@ def _budget_component(current_expense, budget, has_context):
     return {"available": True, "score": score, "weight": weight,
             "value": _round(usage_pct), "unit": "percent_used", "status": status,
             "budget_status": status, "score_basis": "measured"}
-
 
 def _recurring_component(income, recurring_burden, subscription_burden, recurring_bill_burden):
     weight = WEIGHTS["recurring"]

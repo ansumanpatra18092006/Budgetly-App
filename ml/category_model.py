@@ -28,7 +28,7 @@ RULES = [
       "salary received", "freelance payment", "freelance income",
       "refund received", "cashback received", "cashback credited",
       "interest credit", "interest credited", "dividend", "incentive",
-      "reimbursement", "payout"], "Income"),
+      "reimbursement received", "payout received"], "Income"),
 
     # ── Food ────────────────────────────────────────────────────────────
     (["swiggy", "zomato", "blinkit", "dunzo", "bigbasket",
@@ -50,7 +50,7 @@ RULES = [
       "monthly plan", "annual plan", "saas", "software subscription"], "Subscriptions"),
 
     # ── Shopping ────────────────────────────────────────────────────────
-    (["amazon", "flipkart", "myntra", "meesho", "ajio",
+    (["amazon", "flipkart", "myntra", "meesho", "bewakoof", "ajio",
       "nykaa", "tata cliq", "snapdeal", "shopclues",
       "online order", "online shopping"], "Shopping"),
 

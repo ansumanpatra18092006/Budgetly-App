@@ -50,6 +50,7 @@ ALLOWED_CATEGORIES = {
     "Housing",
     "Finance",
     "Travel",
+    "Income",
     "Misc"
 }
 MERCHANT_MAP = {
@@ -67,6 +68,7 @@ MERCHANT_MAP = {
     "flipkart":     "Shopping",
     "amazon":       "Shopping",
     "meesho":       "Shopping",
+    "bewakoof":     "Shopping",
     "myntra":       "Shopping",
     "nykaa":        "Shopping",
     "ajio":         "Shopping",

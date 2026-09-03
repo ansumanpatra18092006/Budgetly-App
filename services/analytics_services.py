@@ -1,40 +1,35 @@
+"""Compatibility analytics helpers.
+
+Financial aggregates should be computed by the unified metrics layer. These
+helpers remain only for legacy callers and delegate budget operations to the
+canonical budget service.
+"""
+
 from utils.db import get_db
+from services.budget_service import get_budget as _get_budget, set_budget as _set_budget
+
 
 def get_income_expense(user_id):
     conn = get_db()
-
-    income = conn.execute(
-        "SELECT SUM(amount) AS total FROM transactions WHERE user_id=%s AND type='income'",
-        (user_id,)
-    ).fetchone()["total"] or 0
-
-    expense = conn.execute(
-        "SELECT SUM(amount) AS total FROM transactions WHERE user_id=%s AND type='expense'",
-        (user_id,)
-    ).fetchone()["total"] or 0
-
-    conn.close()
-    return income, expense
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS expense
+            FROM transactions
+            WHERE user_id=%s AND status <> 'failed'
+            """,
+            (user_id,),
+        ).fetchone()
+        return float(row["income"] or 0), float(row["expense"] or 0)
+    finally:
+        conn.close()
 
 
 def get_budget(user_id):
-    conn = get_db()
-    row = conn.execute(
-        "SELECT amount FROM budgets WHERE user_id=%s",
-        (user_id,)
-    ).fetchone()
-    conn.close()
-    return row["amount"] if row else 0
+    return _get_budget(user_id)
 
 
 def set_budget(user_id, amount):
-    conn = get_db()
-    # NOTE: SQLite's "INSERT OR REPLACE" -> Postgres upsert via
-    # "INSERT ... ON CONFLICT (user_id) DO UPDATE". Requires a
-    # UNIQUE/PRIMARY KEY constraint on budgets.user_id.
-    conn.execute("""
-        INSERT INTO budgets (user_id, amount) VALUES (%s, %s)
-        ON CONFLICT (user_id) DO UPDATE SET amount = EXCLUDED.amount
-    """, (user_id, amount))
-    conn.commit()
-    conn.close()
+    return _set_budget(user_id, amount)

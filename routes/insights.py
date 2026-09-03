@@ -18,6 +18,13 @@ def get_month_start():
     return datetime.today().strftime("%Y-%m-01")
 
 
+def _next_month_start():
+    today = datetime.today()
+    if today.month == 12:
+        return f"{today.year + 1}-01-01"
+    return f"{today.year:04d}-{today.month + 1:02d}-01"
+
+
 def _current_month_key():
     """Return the actual current calendar month as 'YYYY-MM' (matches the
     to_char(date, 'YYYY-MM') format already used in the month-over-month
@@ -48,8 +55,10 @@ def _fetch_current_month_totals(conn, user_id, month_start):
         FROM transactions
         WHERE user_id = %s
           AND date   >= %s
+          AND date   <  %s
+          AND status <> 'failed'
         """,
-        (user_id, month_start),
+        (user_id, month_start, _next_month_start()),
     ).fetchone()
 
     budget_row = conn.execute(
@@ -82,6 +91,7 @@ def predict_expense():
             FROM transactions
             WHERE user_id = %s
               AND type    = 'expense'
+              AND status <> 'failed'
             GROUP BY month
             ORDER BY month ASC
             """,
@@ -114,15 +124,15 @@ def health_metrics():
     savings_rate     = ((income - expense) / income * 100) if income > 0 else 0
     budget_adherence = max(0.0, 100 - (expense / budget * 100)) if budget > 0 else 0
 
-    health_score = int(0.5 * savings_rate + 0.5 * budget_adherence)
-    # Clamp to [0, 100]
-    health_score = max(0, min(100, health_score))
-
+    # This endpoint is retained for lightweight legacy metrics only. Its old
+    # 50/50 score was a second definition of financial health and could never
+    # stay synchronized with the canonical unified health engine.
     return jsonify({
-        "health_score":      round(health_score),
+        "status":             "metrics_only",
+        "health_score":       None,
         "savings_rate":      round(savings_rate),
         "budget_adherence":  round(budget_adherence),
-        "income_stability":  100,
+        "income_stability":  None,
     })
 
 
@@ -150,8 +160,8 @@ def risk_analysis():
                 COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END),0) AS income,
                 COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
             FROM transactions
-            WHERE user_id=%s AND date>=%s
-        """, (user_id, month_start)).fetchone()
+            WHERE user_id=%s AND date>=%s AND date<%s AND status <> 'failed'
+        """, (user_id, month_start, _next_month_start())).fetchone()
 
         # Decimal -> float at the boundary
         income = float(row["income"] or 0)
@@ -194,7 +204,7 @@ def risk_analysis():
             SELECT to_char(date, 'YYYY-MM') AS month,
                    SUM(amount) AS total
             FROM transactions
-            WHERE user_id=%s AND type='expense'
+            WHERE user_id=%s AND type='expense' AND status <> 'failed'
             GROUP BY month
             ORDER BY month DESC
             LIMIT 6
@@ -219,9 +229,9 @@ def risk_analysis():
         probability = 0
 
     # -------- Risk level --------
-    if probability > 110:
+    if probability >= 100:
         risk = "HIGH"
-    elif probability > 90:
+    elif probability >= 80:
         risk = "MEDIUM"
     else:
         risk = "LOW"
