@@ -611,6 +611,13 @@ def unified_insights():
         category_history=category_history,
     )
 
+    # Count goals that currently need attention. Keep this derived from the
+    # canonical per-goal risk classification so the unified health payload and
+    # goal payload cannot drift apart.
+    goals_at_risk_count = sum(
+        1 for g in m["goal_details"] if g.get("goal_risk") in ("medium", "high")
+    )
+
     # ── Financial health / risk (Part G) — canonical shared engine. ──
     health = compute_health_for_context(
         m,
