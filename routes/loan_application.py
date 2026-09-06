@@ -16,6 +16,7 @@ in later phases should resolve the borrower from application.borrower_id
 """
 
 import json
+import logging
 from functools import wraps
 
 from flask import Blueprint, request, jsonify, session, render_template, abort
@@ -24,6 +25,7 @@ from utils.decorators import login_required
 from utils.db import get_db
 
 loan_application_bp = Blueprint("loan_application", __name__)
+logger = logging.getLogger(__name__)
 
 # Exact 20-field production credit-model schema. This must match the
 # schema used by the lender-side workspace and the underlying model —
@@ -375,56 +377,165 @@ def get_loan_application(application_id):
 @login_required
 @consumer_required
 def activate_loan_application(application_id):
-    """Perform the expo's explicit demo disbursement: SANCTIONED -> ACTIVE."""
+    """Perform the expo's explicit demo disbursement: SANCTIONED/APPLICATION -> ACTIVE.
+
+    The borrower can activate only their own approved application.  The
+    lifecycle terms are normalized in Python before the UPDATE so malformed
+    or empty JSON values cannot make the database expression fail.
+    """
     borrower_id = session.get("user_id")
     conn = get_db()
     try:
-        updated = conn.execute(
+        row = conn.execute(
             """
-            UPDATE loan_applications
-            SET loan_state='ACTIVE', disbursed_at=now(),
-                approved_amount=COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision),
-                interest_rate=COALESCE(interest_rate, 12.0),
-                loan_term_months=COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer),
-                emi_amount=COALESCE(
-                    emi_amount,
-                    CASE
-                        WHEN COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer) IS NULL
-                          OR COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer) < 1
-                          OR COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision) IS NULL
-                        THEN NULL
-                        WHEN COALESCE(interest_rate, 12.0) = 0
-                        THEN COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision) / COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer)
-                        ELSE COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision)
-                             * (COALESCE(interest_rate, 12.0) / 12.0 / 100.0)
-                             * POWER(1 + (COALESCE(interest_rate, 12.0) / 12.0 / 100.0), COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer))
-                             / (POWER(1 + (COALESCE(interest_rate, 12.0) / 12.0 / 100.0), COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer)) - 1)
-                    END
-                ),
-                disbursed_at=now(),
-                outstanding_amount=COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision),
-                updated_at=now()
-            WHERE id=%s AND borrower_id=%s AND status='APPROVED' AND COALESCE(loan_state, 'SANCTIONED') IN ('SANCTIONED', 'APPLICATION')
-            RETURNING id, loan_state, approved_amount, interest_rate, emi_amount,
-                      loan_term_months, disbursed_at, outstanding_amount
+            SELECT id, status, application_data, approved_amount,
+                   interest_rate, loan_term_months, loan_state
+            FROM loan_applications
+            WHERE id=%s AND borrower_id=%s
+            FOR UPDATE
             """,
             (application_id, borrower_id),
         ).fetchone()
+
+        if not row:
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "error_type": "not_found",
+                "errors": ["Loan application not found."],
+            }), 404
+
+        if row["status"] != "APPROVED":
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "error_type": "conflict",
+                "errors": ["Only an approved loan can be activated."],
+            }), 409
+
+        current_state = (row["loan_state"] or "APPLICATION").upper()
+        if current_state == "ACTIVE":
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "error_type": "conflict",
+                "errors": ["This loan is already active."],
+            }), 409
+        if current_state not in {"APPLICATION", "SANCTIONED"}:
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "error_type": "conflict",
+                "errors": ["This loan is not eligible for activation."],
+            }), 409
+
+        data = row["application_data"]
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except (TypeError, ValueError):
+                data = {}
+        elif not isinstance(data, dict):
+            data = {}
+
+        def _positive_float(value):
+            try:
+                number = float(value)
+                return number if number > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        def _positive_int(value):
+            try:
+                number = int(float(value))
+                return number if number > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        approved_amount = _positive_float(row["approved_amount"])
+        if approved_amount is None:
+            approved_amount = _positive_float(data.get("credit_amount"))
+
+        interest_rate = _positive_float(row["interest_rate"])
+        if interest_rate is None:
+            interest_rate = 12.0
+
+        tenure_months = _positive_int(row["loan_term_months"])
+        if tenure_months is None:
+            tenure_months = _positive_int(data.get("duration_months"))
+
+        if approved_amount is None or tenure_months is None:
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "error_type": "validation_error",
+                "errors": ["The approved loan is missing a valid amount or tenure."],
+            }), 422
+
+        monthly_rate = interest_rate / 12.0 / 100.0
+        if monthly_rate == 0:
+            emi_amount = approved_amount / tenure_months
+        else:
+            factor = (1.0 + monthly_rate) ** tenure_months
+            emi_amount = approved_amount * monthly_rate * factor / (factor - 1.0)
+
+        updated = conn.execute(
+            """
+            UPDATE loan_applications
+            SET loan_state=%s,
+                approved_amount=%s,
+                interest_rate=%s,
+                loan_term_months=%s,
+                emi_amount=%s,
+                disbursed_at=now(),
+                outstanding_amount=%s,
+                updated_at=now()
+            WHERE id=%s AND borrower_id=%s AND status='APPROVED'
+              AND COALESCE(loan_state, 'APPLICATION') IN ('APPLICATION', 'SANCTIONED')
+            RETURNING id, loan_state, approved_amount, interest_rate, emi_amount,
+                      loan_term_months, disbursed_at, outstanding_amount
+            """,
+            (
+                "ACTIVE",
+                approved_amount,
+                interest_rate,
+                tenure_months,
+                emi_amount,
+                approved_amount,
+                application_id,
+                borrower_id,
+            ),
+        ).fetchone()
+        if not updated:
+            conn.rollback()
+            return jsonify({
+                "status": "error",
+                "error_type": "conflict",
+                "errors": ["The loan changed state before activation. Please refresh and try again."],
+            }), 409
+
         conn.commit()
-    except Exception:
+    except Exception as exc:
         conn.rollback()
-        return jsonify({"status":"error","error_type":"internal_error","errors":["Failed to activate the loan."]}), 500
+        # Keep the client-facing message safe while logging the concrete DB
+        # exception to Flask's normal server log for diagnosis.
+        logger.exception("Failed to activate loan application %s", application_id)
+        return jsonify({
+            "status": "error",
+            "error_type": "internal_error",
+            "errors": ["Failed to activate the loan. Check the Flask log for the database error."],
+        }), 500
     finally:
         conn.close()
 
-    if not updated:
-        return jsonify({"status":"error","error_type":"conflict",
-                        "errors":["Only an approved loan can be activated."]}), 409
     return jsonify({
-        "status":"success", "application_id":updated["id"],
+        "status": "success",
+        "application_id": updated["id"],
         "loan": {
-            "state": updated["loan_state"], "approved_amount": updated["approved_amount"],
-            "interest_rate": updated["interest_rate"], "emi_amount": updated["emi_amount"],
+            "state": updated["loan_state"],
+            "approved_amount": updated["approved_amount"],
+            "interest_rate": updated["interest_rate"],
+            "emi_amount": updated["emi_amount"],
             "tenure_months": updated["loan_term_months"],
             "disbursed_at": updated["disbursed_at"].isoformat() if updated["disbursed_at"] else None,
             "outstanding_amount": updated["outstanding_amount"],
