@@ -1,14 +1,11 @@
 # routes/loan_application.py
 
 """
-Borrower Loan Application Routes (Phase 1).
+Borrower loan application and post-approval lifecycle routes.
 
-Scope for this phase, intentionally minimal:
-    GET  /loan/apply              -> borrower-facing application form
-    POST /api/loan-applications   -> creates a new PENDING application
-
-Explicitly NOT built here (later phases): lender review queue, credit-risk
-assessment triggering, approve/reject, borrower status page.
+The application status (PENDING/APPROVED/REJECTED/WITHDRAWN) remains the
+workflow source of truth. Once approved, loan_state tracks the demo
+sanction/disbursement/repayment lifecycle.
 
 DATA OWNERSHIP:
 Every application explicitly stores borrower_id (the authenticated
@@ -237,23 +234,16 @@ def create_loan_application():
 @login_required
 @consumer_required
 def list_loan_applications():
-    """
-    Returns the authenticated borrower's own loan applications.
-
-    loan_applications.status is the single source of truth written by the
-    lender workspace (PENDING/APPROVED/REJECTED/WITHDRAWN) — this endpoint
-    only reads that same column, it never maintains a separate status
-    store. Scoped strictly to borrower_id = the authenticated session
-    user; borrower_id is never taken from the client, so one borrower can
-    never see another borrower's applications.
-    """
+    """Return the authenticated borrower's applications plus loan lifecycle summary."""
     borrower_id = session.get("user_id")
-
     conn = get_db()
     try:
         rows = conn.execute(
             """
             SELECT la.id, la.status, la.created_at, la.application_data,
+                   la.approved_amount, la.interest_rate, la.emi_amount,
+                   la.loan_term_months, la.loan_state, la.disbursed_at,
+                   la.outstanding_amount,
                    u.name AS lender_name
             FROM loan_applications la
             JOIN users u ON u.id = la.lender_id
@@ -283,60 +273,34 @@ def list_loan_applications():
             "loan_amount": data.get("credit_amount"),
             "submitted_at": row["created_at"].isoformat() if row["created_at"] else None,
             "status": row["status"],
+            "loan": {
+                "state": row["loan_state"] or "APPLICATION",
+                "approved_amount": row["approved_amount"],
+                "interest_rate": row["interest_rate"],
+                "emi_amount": row["emi_amount"],
+                "tenure_months": row["loan_term_months"],
+                "disbursed_at": row["disbursed_at"].isoformat() if row["disbursed_at"] else None,
+                "outstanding_amount": row["outstanding_amount"],
+            },
         })
 
     return jsonify({"status": "success", "applications": applications})
 
 
-# ---------------------------------------------------------------------
-# BORROWER LOAN DETAILS (Phase Next, Part 2)
-#
-# Did not previously exist on the backend -- the Flutter Loan Details
-# screen needs a single-application read that returns more than the
-# list endpoint's summary projection (full applicant answers + a
-# minimal decision block), so this route was added here rather than
-# invented client-side. It follows the exact same ownership pattern as
-# list_loan_applications() / withdraw_loan_application() below and
-# reads no columns/tables beyond what those two already read.
-# ---------------------------------------------------------------------
 @loan_application_bp.route("/api/loan-applications/<int:application_id>", methods=["GET"])
 @login_required
 @consumer_required
 def get_loan_application(application_id):
-    """
-    Returns full detail for one loan application belonging to the
-    authenticated borrower.
-
-    Ownership boundary matches withdraw_loan_application(): `id = %s
-    AND borrower_id = session["user_id"]`. An application that doesn't
-    exist and one owned by another borrower are both reported as 404,
-    so this endpoint never confirms or denies another borrower's
-    application ids.
-
-    Borrower-safe by construction, not by filtering: this route only
-    ever selects loan_applications.{id, status, created_at, updated_at,
-    application_data} and users.name. There is no SHAP/explanation/
-    scenario-analysis/underwriting-notes column in this query (or in
-    this table at all), so none of that can leak here.
-
-    `applicant` is the borrower's own submitted application_data
-    verbatim -- safe to return in full since the borrower already
-    knows every value they entered.
-
-    `decision` is intentionally minimal: only status + decided_at
-    (decided_at = updated_at, which only changes once the application
-    leaves PENDING). There is no separate decision-message /
-    lender-comment column in this schema yet, so `message` is always
-    null rather than invented -- wire it up here if that column is
-    added later.
-    """
+    """Return borrower-owned application detail and repayment history."""
     borrower_id = session.get("user_id")
-
     conn = get_db()
     try:
         row = conn.execute(
             """
             SELECT la.id, la.status, la.created_at, la.updated_at, la.application_data,
+                   la.approved_amount, la.interest_rate, la.emi_amount,
+                   la.loan_term_months, la.loan_state, la.disbursed_at,
+                   la.outstanding_amount, la.decided_at,
                    u.name AS lender_name
             FROM loan_applications la
             JOIN users u ON u.id = la.lender_id
@@ -344,6 +308,17 @@ def get_loan_application(application_id):
             """,
             (application_id, borrower_id),
         ).fetchone()
+        if not row:
+            return None
+        repayments = conn.execute(
+            """
+            SELECT id, amount, remaining_amount, paid_at
+            FROM loan_repayments
+            WHERE application_id = %s AND borrower_id = %s
+            ORDER BY paid_at DESC
+            """,
+            (application_id, borrower_id),
+        ).fetchall()
     finally:
         conn.close()
 
@@ -359,6 +334,7 @@ def get_loan_application(application_id):
     elif not isinstance(data, dict):
         data = {}
 
+    total_repaid = sum(float(r["amount"] or 0) for r in repayments)
     application = {
         "application_id": row["id"],
         "lender_name": row["lender_name"],
@@ -369,16 +345,156 @@ def get_loan_application(application_id):
         "status": row["status"],
         "applicant": data,
         "decision": None,
+        "loan": {
+            "state": row["loan_state"] or "APPLICATION",
+            "approved_amount": row["approved_amount"],
+            "interest_rate": row["interest_rate"],
+            "emi_amount": row["emi_amount"],
+            "tenure_months": row["loan_term_months"],
+            "disbursed_at": row["disbursed_at"].isoformat() if row["disbursed_at"] else None,
+            "outstanding_amount": row["outstanding_amount"],
+            "total_repaid": total_repaid,
+            "repayments": [
+                {"id": r["id"], "amount": r["amount"], "remaining_amount": r["remaining_amount"],
+                 "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None}
+                for r in repayments
+            ],
+        },
     }
-
     if row["status"] in ("APPROVED", "REJECTED"):
         application["decision"] = {
             "status": row["status"],
-            "decided_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            "decided_at": row["decided_at"].isoformat() if row["decided_at"] else None,
             "message": None,
         }
 
     return jsonify({"status": "success", "application": application})
+
+
+@loan_application_bp.route("/api/loan-applications/<int:application_id>/activate", methods=["POST"])
+@login_required
+@consumer_required
+def activate_loan_application(application_id):
+    """Perform the expo's explicit demo disbursement: SANCTIONED -> ACTIVE."""
+    borrower_id = session.get("user_id")
+    conn = get_db()
+    try:
+        updated = conn.execute(
+            """
+            UPDATE loan_applications
+            SET loan_state='ACTIVE', disbursed_at=now(),
+                approved_amount=COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision),
+                interest_rate=COALESCE(interest_rate, 12.0),
+                loan_term_months=COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer),
+                emi_amount=COALESCE(
+                    emi_amount,
+                    CASE
+                        WHEN COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer) IS NULL
+                          OR COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer) < 1
+                          OR COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision) IS NULL
+                        THEN NULL
+                        WHEN COALESCE(interest_rate, 12.0) = 0
+                        THEN COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision) / COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer)
+                        ELSE COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision)
+                             * (COALESCE(interest_rate, 12.0) / 12.0 / 100.0)
+                             * POWER(1 + (COALESCE(interest_rate, 12.0) / 12.0 / 100.0), COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer))
+                             / (POWER(1 + (COALESCE(interest_rate, 12.0) / 12.0 / 100.0), COALESCE(loan_term_months, NULLIF((application_data->>'duration_months'), '')::integer)) - 1)
+                    END
+                ),
+                disbursed_at=now(),
+                outstanding_amount=COALESCE(approved_amount, NULLIF((application_data->>'credit_amount'), '')::double precision),
+                updated_at=now()
+            WHERE id=%s AND borrower_id=%s AND status='APPROVED' AND COALESCE(loan_state, 'SANCTIONED') IN ('SANCTIONED', 'APPLICATION')
+            RETURNING id, loan_state, approved_amount, interest_rate, emi_amount,
+                      loan_term_months, disbursed_at, outstanding_amount
+            """,
+            (application_id, borrower_id),
+        ).fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        return jsonify({"status":"error","error_type":"internal_error","errors":["Failed to activate the loan."]}), 500
+    finally:
+        conn.close()
+
+    if not updated:
+        return jsonify({"status":"error","error_type":"conflict",
+                        "errors":["Only an approved loan can be activated."]}), 409
+    return jsonify({
+        "status":"success", "application_id":updated["id"],
+        "loan": {
+            "state": updated["loan_state"], "approved_amount": updated["approved_amount"],
+            "interest_rate": updated["interest_rate"], "emi_amount": updated["emi_amount"],
+            "tenure_months": updated["loan_term_months"],
+            "disbursed_at": updated["disbursed_at"].isoformat() if updated["disbursed_at"] else None,
+            "outstanding_amount": updated["outstanding_amount"],
+        },
+    })
+
+
+@loan_application_bp.route("/api/loan-applications/<int:application_id>/repay", methods=["POST"])
+@login_required
+@consumer_required
+def repay_loan_application(application_id):
+    """Record a borrower repayment against an ACTIVE demo loan."""
+    borrower_id = session.get("user_id")
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        body = {}
+    try:
+        amount = float(body.get("amount"))
+    except (TypeError, ValueError):
+        amount = 0.0
+    if amount <= 0:
+        return jsonify({"status":"error","error_type":"validation_error","errors":["Repayment amount must be greater than zero."]}), 400
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT id, approved_amount, outstanding_amount, loan_state
+               FROM loan_applications
+               WHERE id=%s AND borrower_id=%s AND status='APPROVED' AND loan_state='ACTIVE'
+               FOR UPDATE""",
+            (application_id, borrower_id),
+        ).fetchone()
+        if not row:
+            conn.rollback()
+            return jsonify({"status":"error","error_type":"conflict","errors":["Only an active approved loan can accept repayments."]}), 409
+
+        outstanding = float(row["outstanding_amount"] if row["outstanding_amount"] is not None else row["approved_amount"] or 0)
+        if amount > outstanding + 1e-9:
+            conn.rollback()
+            return jsonify({"status":"error","error_type":"validation_error","errors":[f"Repayment cannot exceed the outstanding balance ({outstanding:.2f})."]}), 400
+
+        remaining = max(0.0, outstanding - amount)
+        repayment = conn.execute(
+            """INSERT INTO loan_repayments (application_id, borrower_id, amount, remaining_amount)
+               VALUES (%s,%s,%s,%s)
+               RETURNING id, amount, remaining_amount, paid_at""",
+            (application_id, borrower_id, amount, remaining),
+        ).fetchone()
+        new_state = 'CLOSED' if remaining <= 1e-9 else 'ACTIVE'
+        updated = conn.execute(
+            """UPDATE loan_applications
+               SET outstanding_amount=%s, loan_state=%s, updated_at=now()
+               WHERE id=%s AND borrower_id=%s AND loan_state='ACTIVE'
+               RETURNING loan_state, outstanding_amount""",
+            (remaining, new_state, application_id, borrower_id),
+        ).fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        return jsonify({"status":"error","error_type":"internal_error","errors":["Failed to record repayment. Please try again."]}), 500
+    finally:
+        conn.close()
+
+    return jsonify({
+        "status":"success", "application_id":application_id,
+        "loan_state":updated["loan_state"], "outstanding_amount":updated["outstanding_amount"],
+        "repayment": {"id":repayment["id"], "amount":repayment["amount"],
+                      "remaining_amount":repayment["remaining_amount"],
+                      "paid_at":repayment["paid_at"].isoformat() if repayment["paid_at"] else None},
+    })
 
 
 # ---------------------------------------------------------------------

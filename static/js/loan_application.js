@@ -85,6 +85,96 @@ function laFormatDate(iso) {
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+
+function laFormatModelUnits(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    const n = Number(value);
+    return Number.isFinite(n) ? `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })} MU` : '—';
+}
+
+function laLoanMetaHtml(loan, applicationId) {
+    if (!loan || !loan.state || loan.state === 'APPLICATION' || loan.state === 'REJECTED' || loan.state === 'WITHDRAWN') return '';
+    const state = loan.state;
+    const stateLabel = { SANCTIONED:'Loan Sanctioned', ACTIVE:'Active Loan', CLOSED:'Loan Closed' }[state] || state;
+    const amount = laFormatModelUnits(loan.approved_amount);
+    const emi = laFormatModelUnits(loan.emi_amount);
+    const rate = loan.interest_rate == null ? '—' : `${Number(loan.interest_rate).toFixed(2)}% p.a.`;
+    const tenure = loan.tenure_months == null ? '—' : `${loan.tenure_months} months`;
+    const outstanding = laFormatModelUnits(loan.outstanding_amount);
+    let action = '';
+    if (state === 'SANCTIONED') {
+        action = `<button type="button" class="btn-primary la-activate-btn" data-application-id="${escapeLaHtml(applicationId)}"><i class="fa-solid fa-bolt"></i> Activate Loan (Demo Disbursement)</button>`;
+    } else if (state === 'ACTIVE') {
+        action = `<button type="button" class="btn-secondary la-repay-btn" data-application-id="${escapeLaHtml(applicationId)}"><i class="fa-solid fa-money-bill-transfer"></i> Make Repayment</button>`;
+    } else if (state === 'CLOSED') {
+        action = `<span style="color:var(--success,#22c55e);font-weight:700;"><i class="fa-solid fa-circle-check"></i> Fully repaid</span>`;
+    }
+    return `<div style="margin-top:14px;padding:14px;border:1px solid rgba(59,130,246,.22);border-radius:12px;background:rgba(59,130,246,.05);">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+            <strong>${stateLabel}</strong>
+            <span class="ca-field-hint">${state === 'ACTIVE' ? `Outstanding ${escapeLaHtml(outstanding)}` : ''}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:12px;">
+            <div><span class="ca-field-hint">Approved</span><strong>${escapeLaHtml(amount)}</strong></div>
+            <div><span class="ca-field-hint">Interest</span><strong>${escapeLaHtml(rate)}</strong></div>
+            <div><span class="ca-field-hint">Tenure</span><strong>${escapeLaHtml(tenure)}</strong></div>
+            <div><span class="ca-field-hint">EMI</span><strong>${escapeLaHtml(emi)}</strong></div>
+        </div>
+        ${state === 'ACTIVE' ? `<p class="ca-field-hint" style="margin:10px 0 0;">Outstanding balance: <strong>${escapeLaHtml(outstanding)}</strong></p>` : ''}
+        <div style="margin-top:12px;display:flex;justify-content:flex-end;">${action}</div>
+    </div>`;
+}
+
+function laOpenRepaymentDialog(applicationId) {
+    return new Promise(resolve => {
+        const existing = document.getElementById('laRepayOverlay');
+        if (existing) existing.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'laRepayOverlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;z-index:2100;padding:16px;';
+        overlay.innerHTML = `<div class="health-score-card" style="max-width:390px;width:100%;margin:0;">
+            <h3 class="card-title" style="margin-top:0;">Make a Repayment</h3>
+            <p class="ca-field-hint" style="margin:8px 0 14px;">Enter the amount to reduce the active loan balance. This is a demo repayment flow.</p>
+            <input id="laRepayAmount" type="number" min="0.01" step="0.01" placeholder="Amount in model units" style="width:100%;padding:10px 12px;border:1px solid rgba(148,163,184,.35);border-radius:8px;background:transparent;color:inherit;">
+            <div class="form-actions" style="justify-content:flex-end;gap:10px;margin-top:16px;">
+                <button type="button" class="btn-secondary" id="laRepayCancelBtn">Cancel</button>
+                <button type="button" class="btn-primary" id="laRepayConfirmBtn">Record Repayment</button>
+            </div></div>`;
+        document.body.appendChild(overlay);
+        const cleanup = value => { overlay.remove(); resolve(value); };
+        document.getElementById('laRepayCancelBtn').addEventListener('click', () => cleanup(null));
+        document.getElementById('laRepayConfirmBtn').addEventListener('click', () => {
+            const value = Number(document.getElementById('laRepayAmount').value);
+            cleanup(Number.isFinite(value) && value > 0 ? value : null);
+        });
+        overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(null); });
+        setTimeout(() => document.getElementById('laRepayAmount')?.focus(), 0);
+    });
+}
+
+async function laActivateLoan(applicationId, btn) {
+    if (btn) { btn.disabled = true; btn.dataset.originalHtml = btn.innerHTML; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Activating...'; }
+    try {
+        const res = await fetch(`/api/loan-applications/${encodeURIComponent(applicationId)}/activate`, { method:'POST', credentials:'include' });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || data.status !== 'success') { laShowStatusToast((data && data.errors && data.errors[0]) || 'Could not activate the loan.', 'REJECTED'); return; }
+        laFetchApplications();
+    } catch (_) { laShowStatusToast('Could not reach the server. Please try again.', 'REJECTED'); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.originalHtml; } }
+}
+
+async function laRepayLoan(applicationId, amount, btn) {
+    if (!amount) return;
+    if (btn) { btn.disabled = true; btn.dataset.originalHtml = btn.innerHTML; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Recording...'; }
+    try {
+        const res = await fetch(`/api/loan-applications/${encodeURIComponent(applicationId)}/repay`, { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify({amount}) });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || data.status !== 'success') { laShowStatusToast((data && data.errors && data.errors[0]) || 'Could not record the repayment.', 'REJECTED'); return; }
+        laFetchApplications();
+    } catch (_) { laShowStatusToast('Could not reach the server. Please try again.', 'REJECTED'); }
+    finally { if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.originalHtml; } }
+}
+
 function laApplicationCardHtml(app) {
     const meta = LA_STATUS_META[app.status] || {
         label: app.status || 'Unknown', message: '', badgeStyle: 'color:#475569;background:rgba(100,116,139,0.12);border:1px solid rgba(100,116,139,0.4);'
@@ -125,6 +215,7 @@ function laApplicationCardHtml(app) {
             </div>
             <p class="ca-field-hint" style="margin:10px 0 0;">${escapeLaHtml(meta.message)}</p>
             ${withdrawHtml}
+            ${laLoanMetaHtml(app.loan, app.application_id)}
         </div>
     `;
 }
@@ -283,11 +374,24 @@ function initLaApplicationsList() {
     if (container && !container.dataset.laWithdrawBound) {
         container.dataset.laWithdrawBound = '1';
         container.addEventListener('click', async (e) => {
+            const activateBtn = e.target.closest('.la-activate-btn');
+            if (activateBtn) {
+                const applicationId = activateBtn.getAttribute('data-application-id');
+                if (applicationId) await laActivateLoan(applicationId, activateBtn);
+                return;
+            }
+            const repayBtn = e.target.closest('.la-repay-btn');
+            if (repayBtn) {
+                const applicationId = repayBtn.getAttribute('data-application-id');
+                if (!applicationId) return;
+                const amount = await laOpenRepaymentDialog(applicationId);
+                if (amount) await laRepayLoan(applicationId, amount, repayBtn);
+                return;
+            }
             const btn = e.target.closest('.la-withdraw-btn');
             if (!btn) return;
             const applicationId = btn.getAttribute('data-application-id');
             if (!applicationId) return;
-
             const confirmed = await laOpenWithdrawConfirm();
             if (!confirmed) return;
             laSubmitWithdraw(applicationId, btn);

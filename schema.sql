@@ -87,3 +87,57 @@ CREATE INDEX idx_transactions_user_timestamp
 CREATE UNIQUE INDEX idx_transactions_user_reference
   ON public.transactions (user_id, reference_id)
   WHERE reference_id IS NOT NULL AND reference_id <> '';
+
+
+-- Lender intelligence / governance extensions
+ALTER TABLE public.loan_applications
+  ADD COLUMN IF NOT EXISTS assessment_result jsonb,
+  ADD COLUMN IF NOT EXISTS assessed_at timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS decided_at timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS decided_by bigint;
+ALTER TABLE public.loan_applications
+  ADD COLUMN IF NOT EXISTS approved_amount double precision,
+  ADD COLUMN IF NOT EXISTS interest_rate double precision,
+  ADD COLUMN IF NOT EXISTS emi_amount double precision,
+  ADD COLUMN IF NOT EXISTS loan_term_months integer,
+  ADD COLUMN IF NOT EXISTS loan_state text NOT NULL DEFAULT 'APPLICATION',
+  ADD COLUMN IF NOT EXISTS disbursed_at timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS outstanding_amount double precision;
+
+CREATE TABLE IF NOT EXISTS public.loan_repayments (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  application_id bigint NOT NULL,
+  borrower_id bigint NOT NULL,
+  amount double precision NOT NULL CHECK (amount > 0),
+  remaining_amount double precision NOT NULL CHECK (remaining_amount >= 0),
+  paid_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT loan_repayments_pkey PRIMARY KEY (id),
+  CONSTRAINT loan_repayments_application_fkey FOREIGN KEY (application_id) REFERENCES public.loan_applications(id),
+  CONSTRAINT loan_repayments_borrower_fkey FOREIGN KEY (borrower_id) REFERENCES public.users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_loan_repayments_application_time
+  ON public.loan_repayments (application_id, paid_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.lender_decision_audit (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  lender_id bigint NOT NULL,
+  application_id bigint NOT NULL,
+  borrower_id bigint NOT NULL,
+  event_type text NOT NULL CHECK (event_type = ANY (ARRAY['ASSESSMENT'::text, 'DECISION'::text, 'SCENARIO'::text])),
+  model_version text,
+  risk_probability double precision,
+  risk_level text,
+  ai_decision text,
+  lender_decision text,
+  reason_summary jsonb NOT NULL DEFAULT '[]'::jsonb,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT lender_decision_audit_pkey PRIMARY KEY (id),
+  CONSTRAINT lender_decision_audit_lender_id_fkey FOREIGN KEY (lender_id) REFERENCES public.users(id),
+  CONSTRAINT lender_decision_audit_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.loan_applications(id),
+  CONSTRAINT lender_decision_audit_borrower_id_fkey FOREIGN KEY (borrower_id) REFERENCES public.users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_lender_audit_application_time
+  ON public.lender_decision_audit (application_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lender_audit_lender_time
+  ON public.lender_decision_audit (lender_id, created_at DESC);

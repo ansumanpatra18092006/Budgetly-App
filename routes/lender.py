@@ -38,6 +38,8 @@ Registration (add to app.py, alongside the other blueprints):
 """
 
 import json
+import os
+from collections import Counter
 
 from flask import Blueprint, render_template, session, jsonify, abort, request
 
@@ -66,6 +68,42 @@ SCENARIO_ALLOWED_FIELDS = {
 }
 
 lender_bp = Blueprint("lender", __name__)
+
+MODEL_VERSION = os.getenv("FINTRUST_CREDIT_MODEL_VERSION", "Credit Risk Model v2")
+
+
+def _audit_event(conn, *, lender_id, application_id, borrower_id, event_type, assessment=None, lender_decision=None, reasons=None, metadata=None):
+    """Append an immutable lender-governance event after the authoritative action succeeds."""
+    assessment = assessment or {}
+    conn.execute(
+        """
+        INSERT INTO lender_decision_audit
+            (lender_id, application_id, borrower_id, event_type, model_version,
+             risk_probability, risk_level, ai_decision, lender_decision, reason_summary, metadata)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (
+            lender_id, application_id, borrower_id, event_type, MODEL_VERSION,
+            assessment.get("risk_probability"), assessment.get("risk_level"),
+            assessment.get("decision"), lender_decision,
+            json.dumps(reasons or []), json.dumps(metadata or {}),
+        ),
+    )
+
+
+def _assessment_reasons(assessment):
+    """Keep audit reasons factual: model output and explicit SHAP factors only."""
+    reasons = []
+    explanation = assessment.get("explanation") if isinstance(assessment, dict) else None
+    if isinstance(explanation, dict):
+        reasons.extend([f"Risk-increasing: {x}" for x in (explanation.get("risk_increasing_factors") or [])[:5]])
+        reasons.extend([f"Risk-reducing: {x}" for x in (explanation.get("risk_reducing_factors") or [])[:5]])
+    if not reasons and isinstance(assessment, dict):
+        if assessment.get("risk_level"):
+            reasons.append(f"Model risk level: {assessment['risk_level']}")
+        if assessment.get("decision"):
+            reasons.append(f"Model decision: {assessment['decision']}")
+    return reasons
 
 
 # ---------------------------------------------------------------------
@@ -368,7 +406,7 @@ def assess_lender_application(application_id):
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id, application_data FROM loan_applications WHERE id=%s AND lender_id=%s",
+            "SELECT id, borrower_id, application_data FROM loan_applications WHERE id=%s AND lender_id=%s",
             (application_id, lender_id),
         ).fetchone()
     finally:
@@ -418,6 +456,15 @@ def assess_lender_application(application_id):
             """,
             (json.dumps(assessment_to_store), row["id"], lender_id),
         ).fetchone()
+        _audit_event(
+            conn,
+            lender_id=lender_id,
+            application_id=row["id"],
+            borrower_id=row["borrower_id"],
+            event_type="ASSESSMENT",
+            assessment=assessment_to_store,
+            reasons=_assessment_reasons(result),
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -468,7 +515,7 @@ def explain_lender_application(application_id):
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id, application_data FROM loan_applications WHERE id=%s AND lender_id=%s",
+            "SELECT id, borrower_id, application_data FROM loan_applications WHERE id=%s AND lender_id=%s",
             (application_id, lender_id),
         ).fetchone()
     finally:
@@ -496,6 +543,30 @@ def explain_lender_application(application_id):
     # here.
     response_payload = dict(result)
     response_payload["application_id"] = row["id"]
+
+    # Scenario is exploratory but still traceable; record only requested changes and result summary.
+    conn = get_db()
+    try:
+        _audit_event(
+            conn,
+            lender_id=lender_id,
+            application_id=row["id"],
+            borrower_id=row["borrower_id"],
+            event_type="SCENARIO",
+            assessment={
+                "risk_probability": result.get("scenario_probability") or result.get("probability"),
+                "risk_level": result.get("scenario_risk_level"),
+                "decision": result.get("scenario_decision"),
+            },
+            metadata={"changes": changes, "baseline": result.get("baseline"), "scenario": result.get("scenario")},
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        # Exploratory audit failure must not turn a valid scenario into a 500.
+    finally:
+        conn.close()
+
     return jsonify(response_payload)
 
 
@@ -831,7 +902,8 @@ def decide_lender_application(application_id):
     lender_id = session["user_id"]
 
     body = request.get_json(silent=True)
-    decision = body.get("decision") if isinstance(body, dict) else None
+    body = body if isinstance(body, dict) else {}
+    decision = body.get("decision")
     decision = decision.strip().upper() if isinstance(decision, str) else None
 
     if decision not in FINAL_DECISION_STATUSES:
@@ -844,7 +916,9 @@ def decide_lender_application(application_id):
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id, status FROM loan_applications WHERE id=%s AND lender_id=%s",
+            """SELECT id, borrower_id, status, assessment_result, application_data
+               FROM loan_applications
+               WHERE id=%s AND lender_id=%s""",
             (application_id, lender_id),
         ).fetchone()
     finally:
@@ -861,10 +935,50 @@ def decide_lender_application(application_id):
                        else "This application was withdrawn by the borrower and can no longer be decided."],
         }), 409
 
-    # Audit metadata: only APPROVED/REJECTED are final lender decisions
-    # and get decided_at/decided_by. PENDING is not a decision — it
-    # explicitly clears any prior audit metadata (matching the existing
-    # rule that PENDING rows carry no decision state).
+    application_data = _parse_application_data(row.get("application_data")) if isinstance(row, dict) else {}
+    requested_amount = float(application_data.get("credit_amount") or 0)
+    requested_tenure = int(float(application_data.get("duration_months") or 0))
+
+    approved_amount = None
+    interest_rate = None
+    tenure_months = None
+    emi_amount = None
+
+    if decision == "APPROVED":
+        try:
+            approved_amount = float(body.get("approved_amount", requested_amount))
+            interest_rate = float(body.get("interest_rate", 12.0))
+            tenure_months = int(float(body.get("tenure_months", requested_tenure)))
+        except (TypeError, ValueError):
+            return jsonify({
+                "status": "error",
+                "error_type": "validation_error",
+                "errors": ["Approved amount, interest rate, and tenure must be numeric."],
+            }), 400
+
+        if approved_amount <= 0:
+            return jsonify({"status": "error", "error_type": "validation_error",
+                            "errors": ["Approved amount must be greater than zero."]}), 400
+        if requested_amount > 0 and approved_amount > requested_amount:
+            return jsonify({"status": "error", "error_type": "validation_error",
+                            "errors": ["Approved amount cannot exceed the requested loan amount."]}), 400
+        if interest_rate < 0 or interest_rate > 100:
+            return jsonify({"status": "error", "error_type": "validation_error",
+                            "errors": ["Interest rate must be between 0 and 100 percent."]}), 400
+        if tenure_months < 1 or tenure_months > 120:
+            return jsonify({"status": "error", "error_type": "validation_error",
+                            "errors": ["Loan tenure must be between 1 and 120 months."]}), 400
+
+        monthly_rate = interest_rate / 12.0 / 100.0
+        if monthly_rate == 0:
+            emi_amount = approved_amount / tenure_months
+        else:
+            factor = (1.0 + monthly_rate) ** tenure_months
+            emi_amount = approved_amount * monthly_rate * factor / (factor - 1.0)
+
+    # APPROVED also creates the sanction record in the same transaction as
+    # the human decision. The borrower cannot see an ACTIVE loan until the
+    # explicit demo-disbursement step is performed.
     if decision in _FINALIZED_STATUSES:
         decided_at_expr = "now()"
         decided_by_value = lender_id
@@ -878,13 +992,52 @@ def decide_lender_application(application_id):
             f"""
             UPDATE loan_applications
             SET status = %s, updated_at = now(),
-                decided_at = {decided_at_expr}, decided_by = %s
+                decided_at = {decided_at_expr}, decided_by = %s,
+                approved_amount = %s, interest_rate = %s, emi_amount = %s,
+                loan_term_months = %s,
+                loan_state = %s, disbursed_at = %s, outstanding_amount = %s
             WHERE id = %s AND lender_id = %s AND status NOT IN ('APPROVED', 'REJECTED', 'WITHDRAWN')
-            RETURNING id, status, updated_at, decided_at, decided_by
+            RETURNING id, status, updated_at, decided_at, decided_by,
+                      approved_amount, interest_rate, emi_amount, loan_term_months,
+                      loan_state, disbursed_at, outstanding_amount
             """,
-            (decision, decided_by_value, application_id, lender_id),
+            (
+                decision,
+                decided_by_value,
+                approved_amount,
+                interest_rate,
+                emi_amount,
+                tenure_months,
+                'SANCTIONED' if decision == 'APPROVED' else ('REJECTED' if decision == 'REJECTED' else 'APPLICATION'),
+                None,
+                approved_amount if decision == 'APPROVED' else None,
+                application_id,
+                lender_id,
+            ),
         ).fetchone()
-        conn.commit()
+        if not updated:
+            conn.rollback()
+        else:
+            assessment = _parse_jsonb(row.get("assessment_result")) if isinstance(row, dict) else row["assessment_result"]
+            _audit_event(
+                conn,
+                lender_id=lender_id,
+                application_id=application_id,
+                borrower_id=row["borrower_id"],
+                event_type="DECISION",
+                assessment=assessment or {},
+                lender_decision=decision if decision in _FINALIZED_STATUSES else None,
+                metadata={
+                    "status_before": row["status"],
+                    "status_after": decision,
+                    "loan_state": updated["loan_state"],
+                    "approved_amount": approved_amount,
+                    "interest_rate": interest_rate,
+                    "loan_term_months": tenure_months,
+                    "emi_amount": emi_amount,
+                },
+            )
+            conn.commit()
     except Exception:
         conn.rollback()
         return jsonify({
@@ -912,6 +1065,173 @@ def decide_lender_application(application_id):
         "updated_at": updated["updated_at"].isoformat() if updated["updated_at"] else None,
         "decided_at": updated["decided_at"].isoformat() if updated["decided_at"] else None,
         "decided_by": updated["decided_by"],
+        "loan": {
+            "state": updated["loan_state"],
+            "approved_amount": updated["approved_amount"],
+            "interest_rate": updated["interest_rate"],
+            "emi_amount": updated["emi_amount"],
+            "tenure_months": updated["loan_term_months"],
+            "disbursed_at": updated["disbursed_at"].isoformat() if updated["disbursed_at"] else None,
+            "outstanding_amount": updated["outstanding_amount"],
+        },
+    })
+
+
+# ---------------------------------------------------------------------
+# PHASE 10 — PORTFOLIO RISK INTELLIGENCE
+# ---------------------------------------------------------------------
+
+@lender_bp.route("/lender/portfolio", methods=["GET"])
+@lender_required
+def lender_portfolio():
+    """Portfolio-level risk view for the signed-in lender only."""
+    lender_id = session["user_id"]
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, status, application_data, assessment_result
+            FROM loan_applications
+            WHERE lender_id = %s AND status <> 'WITHDRAWN'
+            ORDER BY updated_at DESC
+            """,
+            (lender_id,),
+        ).fetchall()
+
+        # Current risk distribution/exposure.
+        total = len(rows)
+        assessed = 0
+        risk_counts = Counter()
+        exposure = 0.0
+        high_exposure = 0.0
+        probabilities = []
+        for row in rows:
+            data = _parse_application_data(row["application_data"])
+            amount = float(data.get("credit_amount") or 0)
+            exposure += amount
+            assessment = _parse_jsonb(row["assessment_result"]) or {}
+            level = assessment.get("risk_level")
+            prob = assessment.get("risk_probability")
+            if level:
+                assessed += 1
+                normalized = "HIGH" if "HIGH" in str(level).upper() else "MEDIUM" if "MEDIUM" in str(level).upper() else "LOW"
+                risk_counts[normalized] += 1
+                if prob is not None:
+                    probabilities.append(float(prob))
+                if normalized == "HIGH":
+                    high_exposure += amount
+
+        avg_probability = (sum(probabilities) / len(probabilities)) if probabilities else None
+        risk_score = round(avg_probability * 100, 1) if avg_probability is not None else None
+
+        # Recent risk migration from assessment audit events: compare each application's
+        # latest assessment with its previous assessment, scoped to this lender.
+        migration = Counter()
+        audit_rows = conn.execute(
+            """
+            SELECT application_id, risk_level, created_at
+            FROM lender_decision_audit
+            WHERE lender_id=%s AND event_type='ASSESSMENT'
+            ORDER BY application_id, created_at ASC
+            """,
+            (lender_id,),
+        ).fetchall()
+        previous = {}
+        for ar in audit_rows:
+            current = str(ar["risk_level"] or "").upper()
+            if ar["application_id"] in previous and current and previous[ar["application_id"]] and current != previous[ar["application_id"]]:
+                migration[f"{previous[ar['application_id']]} → {current}"] += 1
+            if current:
+                previous[ar["application_id"]] = current
+
+        # Configurable reference benchmark; intentionally labeled as a reference, not real market data.
+        benchmark_high = float(os.getenv("FINTRUST_REFERENCE_HIGH_RISK_PCT", "14"))
+        portfolio_high_pct = (risk_counts["HIGH"] / assessed * 100) if assessed else None
+        benchmark_delta = (portfolio_high_pct - benchmark_high) if portfolio_high_pct is not None else None
+
+        return jsonify({
+            "status": "success",
+            "portfolio": {
+                "total_loans": total,
+                "assessed_loans": assessed,
+                "total_exposure": round(exposure, 2),
+                "high_risk_exposure": round(high_exposure, 2),
+                "risk_distribution": dict(risk_counts),
+                "average_risk_probability": round(avg_probability, 4) if avg_probability is not None else None,
+                "portfolio_risk_score": risk_score,
+                "high_risk_percentage": round(portfolio_high_pct, 1) if portfolio_high_pct is not None else None,
+                "risk_migration": dict(migration),
+                "reference_benchmark": {
+                    "label": "Reference benchmark",
+                    "source": "Configurable demo benchmark",
+                    "high_risk_percentage": benchmark_high,
+                    "difference_points": round(benchmark_delta, 1) if benchmark_delta is not None else None,
+                },
+            },
+        })
+    finally:
+        conn.close()
+
+
+@lender_bp.route("/lender/audit-trail", methods=["GET"])
+@lender_required
+def lender_audit_trail():
+    """Paginated lender decision ledger, strictly tenant-scoped."""
+    lender_id = session["user_id"]
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 200))
+        application_id = request.args.get("application_id", type=int)
+    except (TypeError, ValueError):
+        limit = 50
+        application_id = None
+
+    conn = get_db()
+    try:
+        if application_id:
+            rows = conn.execute(
+                """
+                SELECT a.id, a.application_id, a.borrower_id, a.event_type,
+                       a.model_version, a.risk_probability, a.risk_level,
+                       a.ai_decision, a.lender_decision, a.reason_summary,
+                       a.metadata, a.created_at, u.name AS borrower_name
+                FROM lender_decision_audit a
+                JOIN loan_applications la ON la.id=a.application_id AND la.lender_id=%s
+                LEFT JOIN users u ON u.id=a.borrower_id
+                WHERE a.lender_id=%s AND a.application_id=%s
+                ORDER BY a.created_at DESC LIMIT %s
+                """, (lender_id, lender_id, application_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT a.id, a.application_id, a.borrower_id, a.event_type,
+                       a.model_version, a.risk_probability, a.risk_level,
+                       a.ai_decision, a.lender_decision, a.reason_summary,
+                       a.metadata, a.created_at, u.name AS borrower_name
+                FROM lender_decision_audit a
+                LEFT JOIN users u ON u.id=a.borrower_id
+                WHERE a.lender_id=%s
+                ORDER BY a.created_at DESC LIMIT %s
+                """, (lender_id, limit)
+            ).fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "status": "success",
+        "events": [
+            {
+                "id": r["id"], "application_id": r["application_id"],
+                "borrower_id": r["borrower_id"], "borrower_name": r["borrower_name"],
+                "event_type": r["event_type"], "model_version": r["model_version"],
+                "risk_probability": r["risk_probability"], "risk_level": r["risk_level"],
+                "ai_decision": r["ai_decision"], "lender_decision": r["lender_decision"],
+                "reasons": _parse_jsonb(r["reason_summary"]) or [],
+                "metadata": _parse_jsonb(r["metadata"]) or {},
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ],
     })
 
 

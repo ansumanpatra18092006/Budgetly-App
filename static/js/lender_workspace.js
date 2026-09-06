@@ -72,6 +72,54 @@ function gatherLwMetaData() {
 }
 
 /* -----------------------------------------------------------------
+   AUTHENTICATED ANALYST PROFILE
+
+   Bind the lender header to the current authenticated user's /me profile.
+   No username is hardcoded in the UI.
+----------------------------------------------------------------- */
+function lwInitials(name) {
+    const clean = String(name || '').trim();
+    if (!clean) return 'CR';
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+async function loadLwAnalystProfile() {
+    const nameEl = document.getElementById('lwAnalystName');
+    const avatarEl = document.getElementById('lwAnalystAvatar');
+    const analystEl = document.querySelector('.lw-analyst');
+
+    try {
+        const res = await lwRequest('/me', { method: 'GET' });
+        if (!res.ok) throw new Error(`Profile request failed (${res.status})`);
+
+        const payload = await res.json();
+        const user = payload && payload.data ? payload.data : {};
+        const name = typeof user.name === 'string' ? user.name.trim() : '';
+        const email = typeof user.email === 'string' ? user.email.trim() : '';
+        const displayName = name || 'Credit Risk';
+
+        if (nameEl) {
+            nameEl.textContent = displayName;
+            nameEl.title = email || displayName;
+        }
+        if (avatarEl) avatarEl.textContent = lwInitials(name || 'Credit Risk');
+        if (analystEl) {
+            analystEl.setAttribute('aria-label', email ? `${displayName}, ${email}` : displayName);
+        }
+    } catch (error) {
+        if (nameEl) {
+            nameEl.textContent = 'Credit Risk';
+            nameEl.title = 'Authenticated lender';
+        }
+        if (avatarEl) avatarEl.textContent = 'CR';
+        if (analystEl) analystEl.setAttribute('aria-label', 'Authenticated lender');
+        console.warn('[FinTrust] Could not load authenticated lender profile:', error);
+    }
+}
+
+/* -----------------------------------------------------------------
    INIT
 ----------------------------------------------------------------- */
 function initLenderWorkspace() {
@@ -79,6 +127,8 @@ function initLenderWorkspace() {
     const form = document.getElementById('lenderAssessmentForm');
     if (!form) return;
     lwInitialized = true;
+
+    loadLwAnalystProfile();
 
     initLwNav();
     initLwConfirmModal();
@@ -93,6 +143,14 @@ function initLenderWorkspace() {
 
     loadLwResponsibleAi();
     loadLenderQueue();
+    initLwPortfolioAndAudit();
+    lwStartQueueAutoRefresh();
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        if (!lwQueueLastUpdatedAt || Date.now() - lwQueueLastUpdatedAt.getTime() > 45000) {
+            loadLenderQueue({ silent: true });
+        }
+    });
 }
 
 function initLwNav() {
@@ -177,6 +235,231 @@ function lwVal(v, opts) {
 }
 
 /* -----------------------------------------------------------------
+   PORTFOLIO RISK INTELLIGENCE + DECISION LEDGER
+----------------------------------------------------------------- */
+function initLwPortfolioAndAudit() {
+    const pb = document.getElementById('lwRefreshPortfolioBtn');
+    const ab = document.getElementById('lwRefreshAuditBtn');
+    if (pb) pb.addEventListener('click', loadLwPortfolio);
+    if (ab) ab.addEventListener('click', loadLwAuditTrail);
+    loadLwPortfolio();
+    loadLwAuditTrail();
+}
+
+async function loadLwPortfolio() {
+    const body = document.getElementById('lwPortfolioBody');
+    if (!body) return;
+    body.innerHTML = '<div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading portfolio risk...</div>';
+    const data = await lwSafeJsonFetch('/lender/portfolio');
+    if (!data || !data.portfolio) {
+        body.innerHTML = '<div class="lw-empty-sub">Portfolio intelligence is unavailable right now.</div>';
+        return;
+    }
+
+    const p = data.portfolio;
+    const dist = p.risk_distribution || {};
+    const total = Number(p.total_loans || 0);
+    const assessed = Number(p.assessed_loans || 0);
+    const riskScore = p.portfolio_risk_score;
+    const avgProbability = p.average_risk_probability;
+    const highPct = p.high_risk_percentage;
+    const ref = p.reference_benchmark || {};
+    const migration = p.risk_migration || {};
+
+    const low = Number(dist.LOW || 0);
+    const medium = Number(dist.MEDIUM || 0);
+    const high = Number(dist.HIGH || 0);
+    const assessedTotal = low + medium + high || assessed;
+    const pct = (value) => assessedTotal ? Math.max(0, Math.min(100, value / assessedTotal * 100)) : 0;
+    const fmtNumber = (value, decimals = 0) => {
+        if (value === null || value === undefined || value === '') return '—';
+        const n = Number(value);
+        return Number.isNaN(n) ? escapeLwHtml(value) : n.toLocaleString('en-IN', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        });
+    };
+
+    const migrationEntries = Object.entries(migration).slice(0, 8);
+    const migrationRows = migrationEntries.map(([k, v]) => `
+        <div class="lw-portfolio-migration-row">
+            <span>${escapeLwHtml(k)}</span>
+            <strong>${escapeLwHtml(v)}</strong>
+        </div>`).join('');
+
+    const benchmarkDelta = ref.difference_points == null ? null : Number(ref.difference_points);
+    const benchmarkClass = benchmarkDelta == null ? 'neutral' : benchmarkDelta <= 0 ? 'positive' : 'warning';
+    const benchmarkDeltaText = benchmarkDelta == null
+        ? 'No comparison available'
+        : `${benchmarkDelta > 0 ? '+' : ''}${benchmarkDelta.toFixed(1)} pts`;
+    const benchmarkHeadline = highPct == null || ref.high_risk_percentage == null
+        ? 'Not enough assessed applications'
+        : `${Number(highPct).toFixed(1)}% high-risk`;
+    const benchmarkReference = ref.high_risk_percentage == null
+        ? 'Reference unavailable'
+        : `${Number(ref.high_risk_percentage).toFixed(1)}% reference`;
+
+    body.innerHTML = `
+        <div class="lw-portfolio-intro">
+            <div>
+                <div class="lw-portfolio-eyebrow">Portfolio snapshot</div>
+                <p>Current credit exposure, model risk and portfolio movement at a glance.</p>
+            </div>
+            <div class="lw-portfolio-coverage">
+                <span>Assessment coverage</span>
+                <strong>${fmtNumber(assessed)} / ${fmtNumber(total)}</strong>
+                <small>${total ? ((assessed / total) * 100).toFixed(0) : 0}% of active loans assessed</small>
+            </div>
+        </div>
+
+        <div class="lw-portfolio-hero">
+            <div class="lw-portfolio-kpi">
+                <div class="lw-portfolio-kpi-top"><span>Active loans</span><i class="fa-solid fa-layer-group"></i></div>
+                <strong>${fmtNumber(total)}</strong>
+                <small>${fmtNumber(assessed)} assessed · ${total ? ((assessed / total) * 100).toFixed(0) : 0}% coverage</small>
+            </div>
+            <div class="lw-portfolio-kpi">
+                <div class="lw-portfolio-kpi-top"><span>Total exposure</span><i class="fa-solid fa-wallet"></i></div>
+                <strong>${fmtNumber(p.total_exposure)}</strong>
+                <small>Requested loan exposure</small>
+            </div>
+            <div class="lw-portfolio-kpi">
+                <div class="lw-portfolio-kpi-top"><span>Portfolio risk score</span><i class="fa-solid fa-gauge-high"></i></div>
+                <strong>${riskScore == null ? '—' : Number(riskScore).toFixed(1)}<span class="lw-kpi-unit">/ 100</span></strong>
+                <small>${avgProbability == null ? 'Average model probability unavailable' : `${(Number(avgProbability) * 100).toFixed(1)}% average probability`}</small>
+            </div>
+            <div class="lw-portfolio-kpi lw-portfolio-kpi-alert">
+                <div class="lw-portfolio-kpi-top"><span>High-risk exposure</span><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <strong>${fmtNumber(p.high_risk_exposure)}</strong>
+                <small>${highPct == null ? 'Share unavailable' : `${Number(highPct).toFixed(1)}% of assessed exposure`}</small>
+            </div>
+        </div>
+
+        <div class="lw-portfolio-grid">
+            <div class="lw-panel lw-portfolio-panel lw-portfolio-distribution-panel">
+                <div class="lw-panel-head-row">
+                    <div>
+                        <div class="lw-panel-title">Risk distribution</div>
+                        <div class="lw-portfolio-panel-note">Assessed applications by model band</div>
+                    </div>
+                    <div class="lw-portfolio-total-badge">${fmtNumber(assessedTotal)} assessed</div>
+                </div>
+
+                <div class="lw-portfolio-stacked-bar" aria-label="Risk distribution">
+                    <span class="low" style="width:${pct(low)}%"></span>
+                    <span class="medium" style="width:${pct(medium)}%"></span>
+                    <span class="high" style="width:${pct(high)}%"></span>
+                </div>
+
+                <div class="lw-portfolio-bars">
+                    <div class="lw-portfolio-risk-row">
+                        <div class="lw-portfolio-risk-label"><i class="lw-dot low"></i><span>Low</span></div>
+                        <b>${fmtNumber(low)}</b>
+                        <small>${pct(low).toFixed(1)}%</small>
+                        <div class="lw-portfolio-track"><i class="low" style="width:${pct(low)}%"></i></div>
+                    </div>
+                    <div class="lw-portfolio-risk-row">
+                        <div class="lw-portfolio-risk-label"><i class="lw-dot medium"></i><span>Medium</span></div>
+                        <b>${fmtNumber(medium)}</b>
+                        <small>${pct(medium).toFixed(1)}%</small>
+                        <div class="lw-portfolio-track"><i class="medium" style="width:${pct(medium)}%"></i></div>
+                    </div>
+                    <div class="lw-portfolio-risk-row">
+                        <div class="lw-portfolio-risk-label"><i class="lw-dot high"></i><span>High</span></div>
+                        <b>${fmtNumber(high)}</b>
+                        <small>${pct(high).toFixed(1)}%</small>
+                        <div class="lw-portfolio-track"><i class="high" style="width:${pct(high)}%"></i></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lw-panel lw-portfolio-panel">
+                <div class="lw-panel-head-row">
+                    <div>
+                        <div class="lw-panel-title">Risk migration</div>
+                        <div class="lw-portfolio-panel-note">Recent changes between model bands</div>
+                    </div>
+                    <i class="fa-solid fa-arrow-right-arrow-left lw-portfolio-panel-icon"></i>
+                </div>
+                <div class="lw-portfolio-migration-list">
+                    ${migrationRows || `
+                        <div class="lw-portfolio-empty">
+                            <i class="fa-regular fa-clock"></i>
+                            <strong>No recent transitions</strong>
+                            <span>Migration appears here as assessed applications change risk band.</span>
+                        </div>`}
+                </div>
+            </div>
+
+            <div class="lw-panel lw-portfolio-panel lw-portfolio-benchmark-panel">
+                <div class="lw-panel-head-row">
+                    <div>
+                        <div class="lw-panel-title">Reference benchmark</div>
+                        <div class="lw-portfolio-panel-note">Context against the configured demo benchmark</div>
+                    </div>
+                    <i class="fa-solid fa-scale-balanced lw-portfolio-panel-icon"></i>
+                </div>
+                <div class="lw-benchmark-compare">
+                    <div class="lw-benchmark-stat">
+                        <span>Your portfolio</span>
+                        <strong>${escapeLwHtml(benchmarkHeadline)}</strong>
+                    </div>
+                    <div class="lw-benchmark-vs">vs</div>
+                    <div class="lw-benchmark-stat">
+                        <span>Reference</span>
+                        <strong>${escapeLwHtml(benchmarkReference)}</strong>
+                    </div>
+                </div>
+                <div class="lw-benchmark-delta-row">
+                    <span>Difference</span>
+                    <strong class="${benchmarkClass}">${escapeLwHtml(benchmarkDeltaText)}</strong>
+                </div>
+                <div class="lw-benchmark-callout ${benchmarkClass}">
+                    <i class="fa-solid fa-${benchmarkDelta != null && benchmarkDelta <= 0 ? 'arrow-down' : 'minus'}"></i>
+                    <div>
+                        <strong>${benchmarkDelta == null ? 'Comparison unavailable' : benchmarkDelta <= 0 ? 'Below reference high-risk level' : 'Above reference high-risk level'}</strong>
+                        <span>Comparison is contextual, not a lending rule.</span>
+                    </div>
+                </div>
+                <div class="lw-benchmark-source"><i class="fa-solid fa-circle-info"></i>${escapeLwHtml(ref.source || 'Configurable reference')}</div>
+            </div>
+        </div>
+    `;
+}
+async function loadLwAuditTrail() {
+    const body = document.getElementById('lwAuditBody');
+    if (!body) return;
+    body.innerHTML = '<div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading decision history...</div>';
+    const data = await lwSafeJsonFetch('/lender/audit-trail?limit=100');
+    const fresh = document.getElementById('lwAuditFreshMeta');
+    if (fresh) fresh.textContent = data ? `Updated ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Refresh failed';
+    if (!data || !Array.isArray(data.events) || !data.events.length) {
+        body.innerHTML = `
+            <div class="lw-empty lw-empty-hero">
+                <div class="lw-empty-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                <div class="lw-empty-title">No decision events yet</div>
+                <div class="lw-empty-sub">Assessment, scenario, and lender-decision activity will appear here as the workspace is used.</div>
+            </div>`;
+        return;
+    }
+    const rows = data.events.map(ev => {
+        const pct = typeof ev.risk_probability === 'number' ? `${(ev.risk_probability * 100).toFixed(1)}%` : '—';
+        const decision = ev.lender_decision || ev.ai_decision || '—';
+        const reasons = Array.isArray(ev.reasons) ? ev.reasons.slice(0, 2).join(' · ') : '';
+        return `<tr>
+            <td>${escapeLwHtml(lwFormatDate(ev.created_at))}</td>
+            <td><strong>${escapeLwHtml(ev.borrower_name || 'Applicant')}</strong><div class="lw-table-sub">#${escapeLwHtml(ev.application_id)}</div></td>
+            <td><span class="lw-badge ${lwRiskClass(ev.risk_level)}">${escapeLwHtml(ev.risk_level || '—')}</span></td>
+            <td>${escapeLwHtml(pct)}</td>
+            <td>${escapeLwHtml(ev.event_type)}</td>
+            <td>${escapeLwHtml(decision)}</td>
+            <td><span class="lw-model-pill">${escapeLwHtml(ev.model_version || '—')}</span><div class="lw-table-sub">${escapeLwHtml(reasons)}</div></td>
+        </tr>`;
+    }).join('');
+    body.innerHTML = `<div class="lw-blotter-wrap"><table class="lw-table lw-audit-table"><thead><tr><th>Time</th><th>Applicant</th><th>Risk</th><th>Probability</th><th>Event</th><th>Decision</th><th>Evidence / Model</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+/* -----------------------------------------------------------------
    PENDING APPLICATION QUEUE (PHASE 2)
 
    Reads only from GET /lender/applications and
@@ -185,6 +468,12 @@ function lwVal(v, opts) {
    that stays out of scope until a later phase.
 ----------------------------------------------------------------- */
 let lwQueueApplications = [];
+let lwQueueSearch = '';
+let lwQueueStatusFilter = 'ALL';
+let lwQueueAssessmentFilter = 'ALL';
+let lwQueueSort = 'newest';
+let lwQueueLastUpdatedAt = null;
+let lwQueueAutoRefreshTimer = null;
 let lwDetailApplicationId = null;   // which application is currently open in the detail view
 let lwDetailAssessInFlight = false;
 
@@ -390,75 +679,314 @@ function lwStatusBadgeClass(status) {
     }
 }
 
-async function loadLenderQueue() {
+
+function lwQueueRelativeTime(date) {
+    if (!date) return 'Waiting for data';
+    const ms = Date.now() - new Date(date).getTime();
+    if (!Number.isFinite(ms) || ms < 0 || ms < 5000) return 'Updated just now';
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'Updated moments ago';
+    if (mins === 1) return 'Updated 1 min ago';
+    if (mins < 60) return `Updated ${mins} min ago`;
+    const hrs = Math.floor(mins / 60);
+    return `Updated ${hrs}h ago`;
+}
+
+function lwShowToast(message, kind = 'info') {
+    const host = document.getElementById('lwWorkspaceToast');
+    if (!host) return;
+    host.textContent = '';
+    host.className = `lw-workspace-toast ${kind} visible`;
+    host.innerHTML = `<i class="fa-solid ${
+        kind === 'success' ? 'fa-circle-check' :
+        kind === 'error' ? 'fa-circle-exclamation' :
+        'fa-circle-info'
+    }"></i><span>${escapeLwHtml(message)}</span>`;
+    window.clearTimeout(host._lwTimer);
+    host._lwTimer = window.setTimeout(() => {
+        host.classList.remove('visible');
+    }, 2800);
+}
+
+function lwRefreshQueueMeta() {
+    const el = document.getElementById('lwQueueLiveMeta');
+    if (el) {
+        el.textContent = lwQueueLastUpdatedAt ? lwQueueRelativeTime(lwQueueLastUpdatedAt) : 'Live queue';
+    }
+}
+
+function lwStartQueueAutoRefresh() {
+    if (lwQueueAutoRefreshTimer) window.clearInterval(lwQueueAutoRefreshTimer);
+    lwQueueAutoRefreshTimer = window.setInterval(() => {
+        if (document.hidden || lwDetailAssessInFlight || lwDecisionInFlight) return;
+        loadLenderQueue({ silent: true });
+    }, 45000);
+}
+
+function lwStopQueueAutoRefresh() {
+    if (lwQueueAutoRefreshTimer) {
+        window.clearInterval(lwQueueAutoRefreshTimer);
+        lwQueueAutoRefreshTimer = null;
+    }
+}
+
+function lwQueueMatches(app) {
+    const q = lwQueueSearch.toLowerCase().trim();
+    const haystack = [
+        app.applicant_name,
+        app.application_id,
+        app.purpose,
+        app.status,
+        app.decision
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    if (q && !haystack.includes(q)) return false;
+    if (lwQueueStatusFilter !== 'ALL' && String(app.status || '').toUpperCase() !== lwQueueStatusFilter) return false;
+    if (lwQueueAssessmentFilter !== 'ALL') {
+        const assessed = Boolean(app.assessed);
+        if (lwQueueAssessmentFilter === 'ASSESSED' && !assessed) return false;
+        if (lwQueueAssessmentFilter === 'UNASSESSED' && assessed) return false;
+    }
+    return true;
+}
+
+function lwQueueSortApps(apps) {
+    return [...apps].sort((a, b) => {
+        if (lwQueueSort === 'oldest') return new Date(a.submitted_at || 0) - new Date(b.submitted_at || 0);
+        if (lwQueueSort === 'amount_high') return Number(b.requested_amount || 0) - Number(a.requested_amount || 0);
+        if (lwQueueSort === 'amount_low') return Number(a.requested_amount || 0) - Number(b.requested_amount || 0);
+        return new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0);
+    });
+}
+
+function lwQueueToolbarHtml(filteredCount, totalCount) {
+    return `
+        <div class="lw-queue-commandbar">
+            <div class="lw-queue-search">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <input id="lwQueueSearchInput" type="search" value="${escapeLwHtml(lwQueueSearch)}"
+                    placeholder="Search applicant, ID, or purpose" aria-label="Search applications">
+                <kbd>⌘K</kbd>
+            </div>
+            <div class="lw-queue-filters">
+                <select id="lwQueueStatusFilter" aria-label="Filter by status">
+                    <option value="ALL" ${lwQueueStatusFilter === 'ALL' ? 'selected' : ''}>All status</option>
+                    <option value="PENDING" ${lwQueueStatusFilter === 'PENDING' ? 'selected' : ''}>Pending</option>
+                    <option value="APPROVED" ${lwQueueStatusFilter === 'APPROVED' ? 'selected' : ''}>Approved</option>
+                    <option value="REJECTED" ${lwQueueStatusFilter === 'REJECTED' ? 'selected' : ''}>Rejected</option>
+                </select>
+                <select id="lwQueueAssessmentFilter" aria-label="Filter by assessment">
+                    <option value="ALL" ${lwQueueAssessmentFilter === 'ALL' ? 'selected' : ''}>All assessments</option>
+                    <option value="ASSESSED" ${lwQueueAssessmentFilter === 'ASSESSED' ? 'selected' : ''}>Assessed</option>
+                    <option value="UNASSESSED" ${lwQueueAssessmentFilter === 'UNASSESSED' ? 'selected' : ''}>Not assessed</option>
+                </select>
+                <select id="lwQueueSort" aria-label="Sort applications">
+                    <option value="newest" ${lwQueueSort === 'newest' ? 'selected' : ''}>Newest</option>
+                    <option value="oldest" ${lwQueueSort === 'oldest' ? 'selected' : ''}>Oldest</option>
+                    <option value="amount_high" ${lwQueueSort === 'amount_high' ? 'selected' : ''}>Amount ↓</option>
+                    <option value="amount_low" ${lwQueueSort === 'amount_low' ? 'selected' : ''}>Amount ↑</option>
+                </select>
+            </div>
+            <div class="lw-queue-result-meta">
+                <strong>${filteredCount}</strong><span>of ${totalCount} applications</span>
+            </div>
+        </div>`;
+}
+
+function bindLwQueueToolbar() {
+    const search = document.getElementById('lwQueueSearchInput');
+    const status = document.getElementById('lwQueueStatusFilter');
+    const assessment = document.getElementById('lwQueueAssessmentFilter');
+    const sort = document.getElementById('lwQueueSort');
+
+    if (search) {
+        search.addEventListener('input', (e) => {
+            // renderLenderQueue() rebuilds the queue toolbar/table, so the
+            // search element itself is replaced. Preserve the caret and
+            // restore focus to the new input so typing remains continuous.
+            const nextValue = e.target.value;
+            const selectionStart = e.target.selectionStart;
+            const selectionEnd = e.target.selectionEnd;
+            lwQueueSearch = nextValue;
+
+            renderLenderQueue();
+
+            const replacement = document.getElementById('lwQueueSearchInput');
+            if (replacement) {
+                replacement.focus({ preventScroll: true });
+                const caret = Number.isFinite(selectionStart) ? selectionStart : replacement.value.length;
+                const end = Number.isFinite(selectionEnd) ? selectionEnd : caret;
+                replacement.setSelectionRange(caret, end);
+            }
+        });
+    }
+    if (status) status.addEventListener('change', (e) => {
+        lwQueueStatusFilter = e.target.value;
+        renderLenderQueue();
+    });
+    if (assessment) assessment.addEventListener('change', (e) => {
+        lwQueueAssessmentFilter = e.target.value;
+        renderLenderQueue();
+    });
+    if (sort) sort.addEventListener('change', (e) => {
+        lwQueueSort = e.target.value;
+        renderLenderQueue();
+    });
+}
+
+function lwQueueKeyboardShortcuts() {
+    if (lwQueueKeyboardShortcuts._bound) return;
+    lwQueueKeyboardShortcuts._bound = true;
+    document.addEventListener('keydown', (e) => {
+        const macOrCtrl = e.metaKey || e.ctrlKey;
+        if (macOrCtrl && e.key.toLowerCase() === 'k') {
+            const input = document.getElementById('lwQueueSearchInput');
+            if (input) {
+                e.preventDefault();
+                input.focus();
+                input.select();
+            }
+        }
+        if (e.key === 'Escape' && document.activeElement && document.activeElement.id === 'lwQueueSearchInput') {
+            document.activeElement.blur();
+        }
+    });
+}
+
+async function loadLenderQueue(opts = {}) {
     const body = document.getElementById('lwQueueBody');
     if (!body) return;
-    body.innerHTML = '<div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading applications...</div>';
+    const silent = Boolean(opts.silent);
+
+    if (!silent) {
+        body.innerHTML = '<div class="lw-loading lw-loading-card"><div class="lw-skeleton-line wide"></div><div class="lw-skeleton-line medium"></div><div class="lw-loading-label"><i class="fa-solid fa-spinner fa-spin"></i> Loading live queue…</div></div>';
+    } else {
+        const meta = document.getElementById('lwQueueLiveMeta');
+        if (meta) meta.textContent = 'Refreshing…';
+    }
 
     const data = await lwSafeJsonFetch('/lender/applications');
     if (!data) {
-        body.innerHTML = '<div class="lw-empty-sub" style="text-align:center; padding:24px;">Could not load your applications. Please refresh.</div>';
+        if (silent && lwQueueApplications.length) {
+            lwShowToast("Couldn't refresh the queue. Showing the latest loaded data.", 'error');
+            lwRefreshQueueMeta();
+            return;
+        }
+        body.innerHTML = '<div class="lw-empty"><i class="fa-solid fa-cloud-arrow-down"></i><div class="lw-empty-title">Queue unavailable</div><div class="lw-empty-sub">We could not load your applications right now.</div><button type="button" class="lw-btn lw-btn-primary lw-inline-action" onclick="loadLenderQueue()"><i class="fa-solid fa-rotate-right"></i> Try again</button></div>';
         return;
     }
 
     lwQueueApplications = Array.isArray(data.applications) ? data.applications : [];
+    lwQueueLastUpdatedAt = new Date();
     renderLenderQueue();
+    lwRefreshQueueMeta();
+    if (!silent) lwShowToast(`${lwQueueApplications.length} application${lwQueueApplications.length === 1 ? '' : 's'} loaded`, 'success');
 }
 
 function renderLenderQueue() {
     const body = document.getElementById('lwQueueBody');
     if (!body) return;
 
-    if (lwQueueApplications.length === 0) {
+    const filtered = lwQueueSortApps(lwQueueApplications.filter(lwQueueMatches));
+    const totalCount = lwQueueApplications.length;
+
+    if (totalCount === 0) {
         body.innerHTML = `
-            <div class="lw-empty">
-                <i class="fa-solid fa-inbox"></i>
+            <div class="lw-empty lw-empty-hero">
+                <div class="lw-empty-icon"><i class="fa-solid fa-inbox"></i></div>
                 <div class="lw-empty-title">No pending applications</div>
-                <div class="lw-empty-sub">Borrower applications assigned to you will appear here.</div>
+                <div class="lw-empty-sub">Borrower applications assigned to you will appear here automatically.</div>
             </div>`;
         return;
     }
 
-    const rows = lwQueueApplications.map(app => `
-        <tr>
-            <td>${escapeLwHtml(app.applicant_name || 'Unknown')}</td>
-            <td>#${escapeLwHtml(app.application_id)}</td>
-            <td>${escapeLwHtml(lwFormatModelUnits(app.requested_amount))}</td>
+    const rows = filtered.map((app, index) => {
+        const isSelected = currentApplication && String(currentApplication.application_id) === String(app.application_id);
+        const assessed = Boolean(app.assessed);
+        const assessmentLabel = app.decision || 'Assessed';
+        return `
+        <tr class="${isSelected ? 'is-selected' : ''}" style="--lw-row-index:${index}">
+            <td>
+                <div class="lw-queue-applicant">
+                    <span class="lw-avatar-sm">${escapeLwHtml(String(app.applicant_name || '?').trim().charAt(0).toUpperCase())}</span>
+                    <div>
+                        <strong>${escapeLwHtml(app.applicant_name || 'Unknown')}</strong>
+                        <span>#${escapeLwHtml(app.application_id)}</span>
+                    </div>
+                </div>
+            </td>
+            <td><span class="lw-mono">${escapeLwHtml(lwFormatModelUnits(app.requested_amount).replace(' model units', ''))}</span><span class="lw-unit-note">model units</span></td>
             <td>${escapeLwHtml(app.purpose || '—')}</td>
-            <td>${lwFormatDate(app.submitted_at)}</td>
-            <td><span class="lw-badge ${lwStatusBadgeClass(app.status)}">${escapeLwHtml(app.status)}</span></td>
-            <td>${app.assessed ? `<span class="lw-badge ${lwDecisionClass(app.decision)}">${escapeLwHtml(app.decision || 'Assessed')}</span>` : `<span class="lw-badge">Not assessed</span>`}</td>
-            <td><button type="button" class="lw-btn lw-btn-primary lw-review-btn" data-app-id="${escapeLwHtml(app.application_id)}"><i class="fa-solid fa-magnifying-glass"></i> Review Application</button></td>
-        </tr>
-    `).join('');
+            <td><span class="lw-date-main">${lwFormatDate(app.submitted_at)}</span></td>
+            <td><span class="lw-badge ${lwStatusBadgeClass(app.status)}"><span class="lw-status-dot"></span>${escapeLwHtml(app.status)}</span></td>
+            <td>${assessed
+                ? `<span class="lw-badge ${lwDecisionClass(app.decision)}">${escapeLwHtml(assessmentLabel)}</span>`
+                : `<span class="lw-badge lw-badge-neutral">Not assessed</span>`}</td>
+            <td>
+                <button type="button" class="lw-btn lw-btn-primary lw-review-btn" data-app-id="${escapeLwHtml(app.application_id)}">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i> Review
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    const noResults = `
+        <div class="lw-empty lw-table-empty">
+            <div class="lw-empty-icon"><i class="fa-solid fa-filter-circle-xmark"></i></div>
+            <div class="lw-empty-title">No matching applications</div>
+            <div class="lw-empty-sub">Try a different search or filter.</div>
+            <button type="button" class="lw-btn lw-inline-action" id="lwClearQueueFilters"><i class="fa-solid fa-rotate-left"></i> Clear filters</button>
+        </div>`;
 
     body.innerHTML = `
-        <div class="lw-blotter-wrap">
-        <table class="lw-table">
-            <thead>
-                <tr>
-                    <th>Applicant</th>
-                    <th>Application ID</th>
-                    <th>Requested Amount</th>
-                    <th>Purpose</th>
-                    <th>Submitted</th>
-                    <th>Status</th>
-                    <th>AI Assessment</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-        </table>
+        ${lwQueueToolbarHtml(filtered.length, totalCount)}
+        <div class="lw-queue-summary-strip">
+            <div><span>Pending</span><strong>${lwQueueApplications.filter(a => String(a.status).toUpperCase() === 'PENDING').length}</strong></div>
+            <div><span>Assessed</span><strong>${lwQueueApplications.filter(a => a.assessed).length}</strong></div>
+            <div><span>Selected</span><strong>${currentApplication ? '#' + escapeLwHtml(currentApplication.application_id) : 'None'}</strong></div>
         </div>
+        ${filtered.length ? `
+        <div class="lw-blotter-wrap lw-queue-table-wrap">
+            <table class="lw-table lw-queue-table">
+                <thead>
+                    <tr>
+                        <th>Applicant</th>
+                        <th>Requested amount</th>
+                        <th>Purpose</th>
+                        <th>Submitted</th>
+                        <th>Status</th>
+                        <th>AI assessment</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>` : noResults}
     `;
+
+    bindLwQueueToolbar();
+    lwQueueKeyboardShortcuts();
+
+    const clearBtn = document.getElementById('lwClearQueueFilters');
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+        lwQueueSearch = '';
+        lwQueueStatusFilter = 'ALL';
+        lwQueueAssessmentFilter = 'ALL';
+        lwQueueSort = 'newest';
+        renderLenderQueue();
+    });
 
     body.querySelectorAll('.lw-review-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            openLenderApplicationDetail(e.currentTarget.getAttribute('data-app-id'));
+            const button = e.currentTarget;
+            const id = button.getAttribute('data-app-id');
+            button.disabled = true;
+            button.classList.add('is-loading');
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Opening…';
+            openLenderApplicationDetail(id);
         });
     });
 }
-
 function lwShowDetailSection() {
     document.querySelectorAll('.lw-section').forEach(sec => sec.classList.remove('lw-section-active'));
     const detailSection = document.querySelector('.lw-section[data-section="detail"]');
@@ -509,12 +1037,26 @@ function renderLenderApplicationDetail(app) {
     `).join('');
 
     body.innerHTML = `
+        <div class="lw-case-hero">
+            <div class="lw-case-hero-main">
+                <div class="lw-case-avatar">${escapeLwHtml(String(borrowerName || '?').trim().charAt(0).toUpperCase())}</div>
+                <div>
+                    <div class="lw-case-kicker">Active credit case</div>
+                    <h2>${escapeLwHtml(borrowerName || 'Applicant')}</h2>
+                    <p>Application #${escapeLwHtml(app.application_id)} · ${escapeLwHtml(app.purpose || 'Purpose not specified')}</p>
+                </div>
+            </div>
+            <div class="lw-case-hero-side">
+                <span class="lw-context-label">Current status</span>
+                <span id="lwDetailStatusBadgeHero" class="lw-badge ${lwStatusBadgeClass(app.status)}">${escapeLwHtml(app.status)}</span>
+            </div>
+        </div>
         <div class="lw-disclaimer">
             <i class="fa-solid fa-circle-info"></i>
             <span>Review the submitted application and use the underwriting instruments before recording the final
                 lending decision.</span>
         </div>
-        <div class="lw-stat-row" style="margin-bottom:18px;">
+        <div class="lw-stat-row lw-case-stat-row" style="margin-bottom:18px;">
             <div class="lw-stat-card"><div class="lw-stat-label">Applicant</div>${lwVal(borrowerName)}</div>
             <div class="lw-stat-card"><div class="lw-stat-label">Application ID</div>${lwVal('#' + app.application_id)}</div>
             <div class="lw-stat-card"><div class="lw-stat-label">Submitted</div>${lwVal(lwFormatDate(app.submitted_at))}</div>
@@ -980,11 +1522,13 @@ async function lwSubmitDecision(applicationId, decision) {
         renderLwFinalDecisionBlock();
         renderLwAssessmentOverview();
 
-        const detailBadge = document.getElementById('lwDetailStatusBadge');
-        if (detailBadge) {
-            detailBadge.className = `lw-badge ${lwStatusBadgeClass(data.application_status)}`;
-            detailBadge.textContent = data.application_status;
-        }
+        ['lwDetailStatusBadge', 'lwDetailStatusBadgeHero'].forEach((id) => {
+            const detailBadge = document.getElementById(id);
+            if (detailBadge) {
+                detailBadge.className = `lw-badge ${lwStatusBadgeClass(data.application_status)}`;
+                detailBadge.textContent = data.application_status;
+            }
+        });
 
         if (data.application_status === 'PENDING') {
             const queued = lwQueueApplications.find(a => String(a.application_id) === String(applicationId));

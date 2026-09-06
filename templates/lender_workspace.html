@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/lender_workspace.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lender_workspace2.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lender_workspace_refinement.css') }}">
 </head>
 
 <body>
@@ -25,10 +27,14 @@
                 </div>
             </div>
             <div class="lw-header-right">
+                <div class="lw-live-status" aria-label="Workspace status">
+                    <span class="lw-live-dot" aria-hidden="true"></span>
+                    <span>Live workspace</span>
+                </div>
                 <div class="lw-analyst">
-                    <div class="lw-analyst-avatar">A</div>
-                    <div>
-                        <div class="lw-analyst-name">Analyst</div>
+                    <div class="lw-analyst-avatar" id="lwAnalystAvatar" aria-hidden="true">…</div>
+                    <div class="lw-analyst-identity">
+                        <div class="lw-analyst-name" id="lwAnalystName">Loading…</div>
                         <div class="lw-analyst-role">Credit Risk</div>
                     </div>
                 </div>
@@ -99,6 +105,11 @@
                         Scenario Analysis</button>
                 </div>
                 <div class="lw-nav-group">
+                    <div class="lw-nav-group-label">Portfolio Intelligence</div>
+                    <button type="button" class="lw-nav-item" data-section="portfolio"><i class="fa-solid fa-chart-pie"></i> Portfolio Risk</button>
+                    <button type="button" class="lw-nav-item" data-section="audit"><i class="fa-solid fa-file-shield"></i> Decision Ledger</button>
+                </div>
+                <div class="lw-nav-group">
                     <div class="lw-nav-group-label">Governance</div>
                     <button type="button" class="lw-nav-item" data-section="responsible"><i
                             class="fa-solid fa-scale-balanced"></i> Responsible AI</button>
@@ -112,8 +123,14 @@
             ========================================================= -->
                 <section class="lw-section lw-section-active" data-section="queue">
                     <div class="lw-blotter-head">
-                        <div class="lw-panel-title"><i class="fa-solid fa-inbox"></i> Pending Applications</div>
-                        <div class="lw-panel-note">Live queue</div>
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-inbox"></i> Pending Applications</div>
+                            <div class="lw-section-subtitle">Review, assess, and route active credit applications.</div>
+                        </div>
+                        <div class="lw-section-live-meta">
+                            <span class="lw-live-pulse"></span>
+                            <span id="lwQueueLiveMeta">Live queue</span>
+                        </div>
                     </div>
                     <div id="lwQueueBody">
                         <div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading applications...
@@ -513,6 +530,38 @@
                 </section>
 
                 <!-- ========================================================
+                 8. PORTFOLIO RISK INTELLIGENCE
+            ========================================================= -->
+                <section class="lw-section" data-section="portfolio">
+                    <div class="lw-blotter-head">
+                        <div class="lw-panel-title"><i class="fa-solid fa-chart-pie"></i> Portfolio Risk Intelligence</div>
+                        <button type="button" class="lw-btn" id="lwRefreshPortfolioBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                    </div>
+                    <div id="lwPortfolioBody">
+                        <div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading portfolio risk...</div>
+                    </div>
+                </section>
+
+                <!-- ========================================================
+                 9. DECISION LEDGER
+            ========================================================= -->
+                <section class="lw-section" data-section="audit">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-file-shield"></i> Decision Ledger</div>
+                            <div class="lw-section-subtitle">Immutable assessment and lending-decision activity for your portfolio.</div>
+                        </div>
+                        <div class="lw-section-live-actions">
+                            <span class="lw-data-fresh" id="lwAuditFreshMeta">Waiting for data</span>
+                            <button type="button" class="lw-btn" id="lwRefreshAuditBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                        </div>
+                    </div>
+                    <div id="lwAuditBody">
+                        <div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading decision history...</div>
+                    </div>
+                </section>
+
+                <!-- ========================================================
                  8. RESPONSIBLE AI (existing entry point, kept intact)
             ========================================================= -->
                 <section class="lw-section" data-section="responsible">
@@ -540,6 +589,8 @@
              .lender-workspace so it inherits the design system's CSS
              variables, font, button/badge styles, and theme colors.
         ============================================================= -->
+        <div id="lwWorkspaceToast" class="lw-workspace-toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
         <div id="lwDecisionDock" class="lw-decision-dock" style="display:none;">
             <div id="lwDecisionDockBody"></div>
         </div>
