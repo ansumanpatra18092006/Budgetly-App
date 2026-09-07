@@ -24,18 +24,23 @@ _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 def _api_key() -> str:
-    """Return a Gemini API key, never an OAuth access token."""
-    source = "GOOGLE_API_KEY"
-    value = os.getenv("GOOGLE_API_KEY", "").strip()
+    """Return the Gemini API key used by the Gemini Developer API.
+
+    GEMINI_API_KEY is intentionally preferred over GOOGLE_API_KEY because
+    GOOGLE_API_KEY is commonly reused for other Google services and may be
+    configured with a credential type that is not valid for the Gemini API.
+    """
+    source = "GEMINI_API_KEY"
+    value = os.getenv("GEMINI_API_KEY", "").strip()
 
     if not value:
-        source = "GEMINI_API_KEY"
-        value = os.getenv("GEMINI_API_KEY", "").strip()
+        source = "GOOGLE_API_KEY"
+        value = os.getenv("GOOGLE_API_KEY", "").strip()
 
     if not value:
         raise ValueError(
-            "Gemini API key is not configured. Set GOOGLE_API_KEY or "
-            "GEMINI_API_KEY in the environment."
+            "Gemini API key is not configured. Set GEMINI_API_KEY "
+            "(preferred) or GOOGLE_API_KEY in the environment."
         )
 
     lowered = value.lower()
@@ -47,7 +52,7 @@ def _api_key() -> str:
         raise ValueError(
             f"{source} contains an OAuth access token, not a Gemini API key. "
             "Create/copy a Gemini API key from Google AI Studio and set that "
-            "value as GOOGLE_API_KEY (preferred) or GEMINI_API_KEY."
+            "value as GEMINI_API_KEY."
         )
 
     return value
@@ -118,6 +123,16 @@ def _post_with_retries(
         if response.status_code not in RETRYABLE_STATUS_CODES or attempt >= MAX_RETRIES:
             detail = response.text[:1000]
             response.close()
+
+            if response.status_code == 401:
+                raise ValueError(
+                    "Gemini authentication failed (HTTP 401). The configured "
+                    "Gemini credential is invalid or is the wrong credential type. "
+                    "Set GEMINI_API_KEY to a Gemini API key from Google AI Studio "
+                    "(not an OAuth access token), then redeploy on Render. "
+                    f"Google response: {detail}"
+                )
+
             raise ValueError(f"Gemini API HTTP {response.status_code}: {detail}")
 
         delay = _retry_delay(response, attempt)
@@ -248,7 +263,6 @@ def generate_json(
             [{"role": "user", "parts": [{"text": prompt}]}],
             generation_config={
                 "responseMimeType": "application/json",
-                "temperature": 0.2,
             },
             timeout_seconds=timeout_seconds,
         )
