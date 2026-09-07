@@ -534,10 +534,7 @@ def _stream_gemini(messages: list[dict], model: str, user_id: int, user_message:
         conversation_memory[user_id] = history[-12:]
 
     except RuntimeError:
-        yield _sse(
-            "error",
-            "Gemini API key is not configured. Set GEMINI_API_KEY in Render Environment Variables."
-        )
+        yield _sse("error", "Gemini API key is not configured. Set GEMINI_API_KEY in .env.")
         model = "offline"
     except requests.exceptions.ConnectionError:
         yield _sse("error", "Couldn't reach Gemini — check your connection and try again.")
@@ -545,24 +542,6 @@ def _stream_gemini(messages: list[dict], model: str, user_id: int, user_message:
     except requests.exceptions.Timeout:
         yield _sse("error", "The response timed out — please try again.")
         model = "timeout"
-    except ValueError as exc:
-        # gemini_service raises ValueError for configuration/auth/API errors.
-        # Keep the full credential detail in server logs, but do not send it to the client.
-        traceback.print_exc()
-        message = str(exc)
-        if "HTTP 401" in message or "authentication failed" in message.lower():
-            yield _sse(
-                "error",
-                "Gemini authentication failed. Check GEMINI_API_KEY in Render and redeploy."
-            )
-        elif "api key is not configured" in message.lower():
-            yield _sse(
-                "error",
-                "Gemini API key is not configured. Set GEMINI_API_KEY in Render and redeploy."
-            )
-        else:
-            yield _sse("error", "Gemini could not generate a response right now. Please try again.")
-        model = "error"
     except requests.exceptions.HTTPError as exc:
         traceback.print_exc()
         status = exc.response.status_code if exc.response is not None else "unknown"
@@ -594,7 +573,8 @@ def chat():
         return Response(stream_with_context(_empty()),
                         mimetype="text/event-stream",
                         headers={"X-Accel-Buffering": "no",
-                                 "Cache-Control": "no-cache"})
+                                 "Cache-Control": "no-cache",
+                                 "Content-Type": "text/event-stream; charset=utf-8"})
 
     conn = get_db()
     try:
@@ -610,7 +590,9 @@ def chat():
         return Response(
             stream_with_context(_stream_text(fast_reply.strip(), "instant")),
             mimetype="text/event-stream",
-            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+            headers={"X-Accel-Buffering": "no",
+                     "Cache-Control": "no-cache",
+                     "Content-Type": "text/event-stream; charset=utf-8"},
         )
 
     system_prompt = _build_prompt(a, intent, message)
