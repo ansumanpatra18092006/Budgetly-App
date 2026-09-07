@@ -488,8 +488,7 @@ def _fetch_anomaly_input(conn, user_id):
     """, (user_id,)).fetchall()
     return [
         {"id": r["id"], "amount": float(r["amount"] or 0),
-         "category": r["category"], "description": r["description"],
-         "date": r["date"]}
+         "category": r["category"], "description": r["description"], "date": r["date"]}
         for r in rows
     ]
 

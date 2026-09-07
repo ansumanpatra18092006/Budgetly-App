@@ -278,7 +278,7 @@ def anomaly_transactions():
             "amount":      float(r["amount"] or 0),
             "category":    r["category"],
             "description": r["description"],
-            "date":        r["date"],
+            "date": r["date"],
         }
         for r in rows
     ]
