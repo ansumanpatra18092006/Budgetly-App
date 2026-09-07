@@ -259,7 +259,7 @@ def anomaly_transactions():
     try:
         rows = conn.execute(
             """
-            SELECT id, amount, category, description
+            SELECT id, amount, category, description, date
             FROM transactions
             WHERE user_id = %s
               AND type    = 'expense'
@@ -278,6 +278,7 @@ def anomaly_transactions():
             "amount":      float(r["amount"] or 0),
             "category":    r["category"],
             "description": r["description"],
+            "date":        r["date"],
         }
         for r in rows
     ]

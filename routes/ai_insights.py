@@ -481,14 +481,15 @@ def _fetch_current_month_category_totals(conn, user_id, cur_start):
 
 def _fetch_anomaly_input(conn, user_id):
     rows = conn.execute("""
-        SELECT id, amount, category, description
+        SELECT id, amount, category, description, date
         FROM transactions
         WHERE user_id=%s AND type='expense' AND status <> 'failed'
         ORDER BY date ASC
     """, (user_id,)).fetchall()
     return [
         {"id": r["id"], "amount": float(r["amount"] or 0),
-         "category": r["category"], "description": r["description"]}
+         "category": r["category"], "description": r["description"],
+         "date": r["date"]}
         for r in rows
     ]
 
