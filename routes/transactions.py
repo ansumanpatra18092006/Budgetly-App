@@ -1226,12 +1226,25 @@ def import_transactions():
 
     try:
         raw_bytes = request.files["file"].stream.read()
+        # CSV files exported by Excel and many generators may include a UTF-8
+        # BOM. Decode with utf-8-sig so the first header remains "description"
+        # instead of "\\ufeffdescription".
         try:
-            stream = io.StringIO(raw_bytes.decode("utf-8"))
+            csv_text = raw_bytes.decode("utf-8-sig")
         except UnicodeDecodeError:
-            stream = io.StringIO(raw_bytes.decode("latin-1"))
-        reader   = csv.DictReader(stream)
-        conn     = get_db()
+            csv_text = raw_bytes.decode("latin-1")
+
+        # Normalize header names so BOMs, whitespace and case differences
+        # cannot cause all rows to be skipped.
+        stream = io.StringIO(csv_text)
+        reader = csv.DictReader(stream)
+        if reader.fieldnames:
+            reader.fieldnames = [
+                (name or "").strip().lstrip("\ufeff").lower()
+                for name in reader.fieldnames
+            ]
+
+        conn = get_db()
         inserted = 0
 
         # 🔥 PERFORMANCE FIX: fetch user_category_map ONCE for this whole
@@ -1241,7 +1254,19 @@ def import_transactions():
         try:
             for row in reader:
                 description = (row.get("description") or "").strip()
-                amount      = float(row.get("amount") or 0)
+
+                raw_amount = str(row.get("amount") or "").strip()
+                raw_amount = (
+                    raw_amount
+                    .replace("₹", "")
+                    .replace(",", "")
+                    .replace(" ", "")
+                )
+                try:
+                    amount = float(raw_amount or 0)
+                except (TypeError, ValueError):
+                    logger.warning("Skipping CSV row with invalid amount: %r", row.get("amount"))
+                    continue
                 t_type      = (row.get("type") or "expense").strip().lower()
                 if t_type not in ("income", "expense"):
                     t_type = "expense"
@@ -1280,7 +1305,28 @@ def import_transactions():
         finally:
             conn.close()
 
-        return jsonify({"success": True, "imported": inserted})
+        # Confirm what is visible to the same user session that performed
+        # the import. This makes it immediately obvious if data was inserted
+        # under a different user or if a deployment is serving stale code.
+        count_conn = get_db()
+        try:
+            user_count = count_conn.execute(
+                "SELECT COUNT(*) AS count FROM transactions WHERE user_id = %s",
+                (user_id,)
+            ).fetchone()["count"]
+        finally:
+            count_conn.close()
+
+        return jsonify({
+            "success": True,
+            "imported": inserted,
+            "user_transaction_count": int(user_count or 0),
+            "message": (
+                f"{inserted} transactions imported."
+                if inserted
+                else "No valid transactions found in the CSV."
+            ),
+        })
 
     except Exception as e:
         logger.exception("import_transactions failed.")

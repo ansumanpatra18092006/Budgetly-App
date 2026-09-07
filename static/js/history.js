@@ -5,16 +5,33 @@
 ================================================================ */
 async function loadHistory() {
     setListLoading('transactionsList');
-    const res = await authFetch('/get-transactions');
+    const res = await authFetch(`/get-transactions?_ts=${Date.now()}`, {
+        cache: 'no-store',
+    });
     if (!res) { clearListLoading('transactionsList'); return; }
 
     try {
         const json = await res.json();
-        const data = json.data ?? json;
-        renderTransactionsList(data.transactions ?? []);
+
+        if (!res.ok) {
+            console.error('loadHistory server error:', json);
+            showNotification(json.error || 'Failed to load transactions', 'error');
+            renderTransactionsList([]);
+            return;
+        }
+
+        // Support both current and wrapped API response shapes.
+        const transactions =
+            Array.isArray(json?.transactions) ? json.transactions :
+            Array.isArray(json?.data?.transactions) ? json.data.transactions :
+            Array.isArray(json) ? json : [];
+
+        console.log(`[HISTORY] loaded ${transactions.length} transactions`);
+        renderTransactionsList(transactions);
     } catch (e) {
         console.error('loadHistory parse error', e);
         renderTransactionsList([]);
+        showNotification('Could not read transaction history', 'error');
     }
 }
 
@@ -82,7 +99,7 @@ async function applyFilters() {
     setListLoading('transactionsList');
 
     try {
-        const res = await authFetch(`/get-transactions?${params.toString()}`);
+        const res = await authFetch(`/get-transactions?${params.toString()}${params.toString() ? '&' : ''}_ts=${Date.now()}`, { cache: 'no-store' });
         if (!res) return;
         const json = await res.json();
         const data = json.data ?? json;
@@ -158,11 +175,32 @@ async function importCSV(input) {
         });
 
         if (res && res.ok) {
-            showNotification('CSV imported successfully', 'success');
-            loadHistory();
-            loadDashboard();
+            const data = await res.json().catch(() => ({}));
+            const imported = Number(data.imported ?? 0);
+
+            if (imported > 0) {
+                showNotification(`${imported} transactions imported successfully`, 'success');
+            } else if (Number(data.user_transaction_count ?? 0) > 0) {
+                showNotification(
+                    `CSV added 0 new rows; you already have ${data.user_transaction_count} transactions.`,
+                    'warning'
+                );
+            } else {
+                showNotification(
+                    data.message || 'CSV was accepted, but no valid transactions were imported.',
+                    'warning'
+                );
+            }
+
+            await loadHistory();
+            await loadDashboard();
         } else {
-            showNotification('Import failed. Check file format.', 'error');
+            let message = 'Import failed. Check file format.';
+            try {
+                const data = await res.json();
+                if (data.error) message = data.error;
+            } catch (_) {}
+            showNotification(message, 'error');
         }
     } catch (err) {
         showNotification('Import failed', 'error');
