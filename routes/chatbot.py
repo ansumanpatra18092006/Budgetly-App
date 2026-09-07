@@ -125,22 +125,59 @@ def _detect_intent(message: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Financial analysis  (unchanged logic)
+# Financial analysis
 # ─────────────────────────────────────────────────────────────────
 
+def _safe_float(value, default: float = 0.0) -> float:
+    """
+    Convert a metric to float without allowing missing/invalid values
+    to crash the chatbot endpoint.
+
+    `dict.get(key, default)` does not protect against an explicitly stored
+    None value, so `float(metrics.get(...))` can still raise TypeError.
+    """
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value, default: int = 0) -> int:
+    """Convert a metric to int without raising on None/invalid values."""
+    if value is None:
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def _analyse(metrics: dict, message: str, intent: str) -> dict:
-    income          = float(metrics.get("income",          0))
-    expense         = float(metrics.get("expense",         0))
-    surplus         = float(metrics.get("surplus",         0))
-    savings_rate    = float(metrics.get("savings_rate",    0))
-    budget          = float(metrics.get("budget",          0))
-    budget_used_pct = float(metrics.get("budget_used_pct", 0))
-    expense_change  = float(metrics.get("expense_change",  0))
-    daily_burn      = float(metrics.get("daily_burn",      0))
-    days_left       = int(metrics.get("days_left",         0))
-    top_cat         = metrics.get("top_cat_name", "miscellaneous")
-    top_pct         = float(metrics.get("top_cat_pct",     0))
-    goals           = metrics.get("goals", [])
+    # Most metrics should fall back to zero when unavailable because the
+    # downstream fast-path calculations are numeric. `expense_change` is
+    # intentionally handled separately: None means there is not enough
+    # previous-month data to calculate a meaningful percentage change.
+    income          = _safe_float(metrics.get("income"))
+    expense         = _safe_float(metrics.get("expense"))
+    surplus         = _safe_float(metrics.get("surplus"))
+    savings_rate    = _safe_float(metrics.get("savings_rate"))
+    budget          = _safe_float(metrics.get("budget"))
+    budget_used_pct = _safe_float(metrics.get("budget_used_pct"))
+
+    expense_change_raw = metrics.get("expense_change")
+    expense_change = (
+        None
+        if expense_change_raw is None
+        else _safe_float(expense_change_raw)
+    )
+
+    daily_burn      = _safe_float(metrics.get("daily_burn"))
+    days_left       = _safe_int(metrics.get("days_left"))
+    top_cat         = metrics.get("top_cat_name") or "miscellaneous"
+    top_pct         = _safe_float(metrics.get("top_cat_pct"))
+    goals           = metrics.get("goals") or []
 
     safe_spend_40  = round(surplus * 0.40)
     budget_left    = max(0.0, budget - expense) if budget > 0 else 0.0
@@ -158,10 +195,16 @@ def _analyse(metrics: dict, message: str, intent: str) -> dict:
     elif budget_used_pct >= 40: budget_verdict = "on track"
     else:                       budget_verdict = "healthy"
 
-    if expense_change > 20:    trend = f"up {expense_change:.0f}% vs last month — rising fast"
-    elif expense_change > 5:   trend = f"up {expense_change:.0f}% vs last month"
-    elif expense_change < -10: trend = f"down {abs(expense_change):.0f}% vs last month — improving"
-    else:                      trend = "stable vs last month"
+    if expense_change is None:
+        trend = "unavailable — not enough previous-month data"
+    elif expense_change > 20:
+        trend = f"up {expense_change:.0f}% vs last month — rising fast"
+    elif expense_change > 5:
+        trend = f"up {expense_change:.0f}% vs last month"
+    elif expense_change < -10:
+        trend = f"down {abs(expense_change):.0f}% vs last month — improving"
+    else:
+        trend = "stable vs last month"
 
     goals_summary = []
     for g in goals[:3]:
