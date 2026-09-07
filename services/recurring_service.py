@@ -523,7 +523,7 @@ _INCOME_KEYWORDS = {
     "interest", "reimbursement",
 }
 
-_SUBSCRIPTION_CATEGORIES = {"subscription", "subscriptions", "entertainment", "streaming", "software"}
+_SUBSCRIPTION_CATEGORIES = {"subscription", "subscriptions", "streaming", "software"}
 _BILL_CATEGORIES = {"utilities", "utility", "rent", "insurance", "loan", "emi", "housing", "telecom", "bills"}
 _INCOME_CATEGORIES = {"salary", "income", "payroll"}
 # Rule 3: discretionary spending is strong negative evidence for both
@@ -611,10 +611,16 @@ def _classify_candidate(norm_desc, category, t_type, freq, stats, confidence_fac
 
     # Rule 3: discretionary categories heavily suppress subscription/bill
     # scores even if the merchant happens to recur.
-    if cat_lower in _DISCRETIONARY_CATEGORIES:
+    if cat_lower in _DISCRETIONARY_CATEGORIES or cat_lower == "entertainment":
         scores["subscription"] *= 0.25
         scores["recurring_bill"] *= 0.35
         scores["unknown_recurring"] += 0.20
+
+        # Explicit subscription semantics (Netflix, Spotify, YouTube Premium,
+        # etc.) override the discretionary-category penalty. Merely recurring
+        # entertainment purchases such as cinema/gaming still stay uncertain.
+        if sub_strong:
+            scores["subscription"] = max(scores["subscription"], 0.55)
 
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     best_class, best_score = ranked[0]
