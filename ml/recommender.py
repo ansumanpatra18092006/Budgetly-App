@@ -117,9 +117,17 @@ def get_recommendations(user_id: int) -> list[str]:
         if target_date_str:
             try:
                 td = datetime.strptime(target_date_str, "%Y-%m-%d")
-                ml = max(1, (td.year - today.year) * 12 + (td.month - today.month))
-                months_left      = ml
-                monthly_required = round(remaining / ml, 0)
+                ml = 0 if td.date() < today.date() else max(
+                    1,
+                    (td.year - today.year) * 12 +
+                    (td.month - today.month) + 1
+                )
+                months_left = ml
+                monthly_required = (
+                    round(remaining / ml, 0)
+                    if ml > 0
+                    else round(remaining, 0)
+                )
             except (ValueError, TypeError):
                 pass
 

@@ -57,11 +57,22 @@ _GEMINI_SYSTEM_INSTRUCTION = (
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────
 
-def _months_between(start: datetime, end: datetime) -> float:
-    """Return fractional months from *start* to *end*."""
-    return (end.year - start.year) * 12 + (end.month - start.month) + (
-        end.day - start.day
-    ) / 30.0
+def _contribution_months(start: datetime, end: datetime) -> int:
+    """
+    Return the number of calendar months in which the user can still
+    contribute toward a deadline, counting the current month and the
+    deadline month.
+
+    Examples:
+      2026-09-08 -> 2026-10-31 = 2 contribution months (Sep, Oct)
+      2026-09-08 -> 2027-03-31 = 7 contribution months (Sep-Mar)
+
+    A deadline that has already passed still returns 0; callers can then
+    handle the overdue case explicitly.
+    """
+    if end.date() < start.date():
+        return 0
+    return max(1, (end.year - start.year) * 12 + (end.month - start.month) + 1)
 
 
 def _coerce_target_date(value) -> Optional[datetime]:
@@ -155,8 +166,8 @@ def _build_prediction(
     if target_date:
         td = _coerce_target_date(target_date)
         if td is not None:
-            months_left = _months_between(datetime.today(), td)
-            deadline_months = max(months_left, 0.0)
+            months_left = _contribution_months(datetime.today(), td)
+            deadline_months = max(months_left, 0)
             if months_left > 0:
                 required_per_month = round(remaining / months_left, 2)
             else:
@@ -628,13 +639,13 @@ def _compute_roadmap(goal: dict, metrics: dict, avg_income: float,
         target_dt = _coerce_target_date(target_date)
         if target_dt is not None:
             today           = datetime.today()
-            deadline_months = max(
-                1,
-                (target_dt.year  - today.year)  * 12 +
-                (target_dt.month - today.month)
-            )
+            deadline_months = _contribution_months(today, target_dt)
             months_required  = deadline_months
-            required_monthly = round(remaining / deadline_months, 2) if deadline_months > 0 else remaining
+            required_monthly = (
+                round(remaining / deadline_months, 2)
+                if deadline_months > 0
+                else remaining
+            )
             plan_type        = "deadline"
 
     if months_required is None:

@@ -24,6 +24,25 @@ from ml.anomaly_model import detect_category_anomalies
 ai_insights_bp = Blueprint("ai_insights", __name__)
 
 
+def _contribution_months(start, end):
+    """Inclusive calendar months available for contributions.
+
+    Accepts either datetime.datetime or datetime.date objects.
+    """
+    start_date = start.date() if isinstance(start, datetime) else start
+    end_date = end.date() if isinstance(end, datetime) else end
+
+    if end_date < start_date:
+        return 0
+
+    return max(
+        1,
+        (end_date.year - start_date.year) * 12
+        + (end_date.month - start_date.month)
+        + 1,
+    )
+
+
 def _safe_close(conn):
     try:
         conn.close()
@@ -50,17 +69,6 @@ def _current_month_end_exclusive():
     if today.month == 12:
         return f"{today.year + 1}-01-01"
     return f"{today.year:04d}-{today.month + 1:02d}-01"
-
-
-def _previous_month_to_date_end():
-    """Return the exclusive end date for the previous month at the same
-    day-of-month as today. This makes early-month trend percentages fair:
-    Sep 1-8 is compared with Aug 1-8, not the entire month of August."""
-    today = date.today()
-    current_first = date(today.year, today.month, 1)
-    previous_last = current_first - timedelta(days=1)
-    cutoff_day = min(today.day, previous_last.day)
-    return previous_last.replace(day=cutoff_day) + timedelta(days=1)
 
 
 def _parse_target_date(value):
@@ -129,12 +137,7 @@ def _fetch_full_metrics(conn, user_id):
       - combined_risk  : blended risk from expense ratio + goal pressure.
     """
     cur_start, prev_start, prev_end = _get_month_bounds()
-    # Current-period analytics must never include future-dated demo/import rows.
-    cur_end = min(
-        _current_month_end_exclusive(),
-        (date.today() + timedelta(days=1)).strftime("%Y-%m-%d"),
-    )
-    prev_mtd_end = _previous_month_to_date_end().strftime("%Y-%m-%d")
+    cur_end = _current_month_end_exclusive()
     today = datetime.today()
 
     # ── Current month income / expense ──────────────────────────
@@ -146,15 +149,12 @@ def _fetch_full_metrics(conn, user_id):
     """, (user_id, cur_start, cur_end)).fetchone()
 
     # ── Previous month ───────────────────────────────────────────
-    # Compare month-to-date with the equivalent number of days in the previous
-    # month. A full previous month vs a partial current month can create a
-    # misleading -70%/-80% trend early in a month.
     prev = conn.execute("""
         SELECT
             COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expense
-        FROM transactions WHERE user_id=%s AND date>=%s AND date<%s AND status <> 'failed'
-    """, (user_id, prev_start, prev_mtd_end)).fetchone()
+        FROM transactions WHERE user_id=%s AND date>=%s AND date<=%s AND status <> 'failed'
+    """, (user_id, prev_start, prev_end)).fetchone()
 
     # ── Budget ───────────────────────────────────────────────────
     budget_row = conn.execute(
@@ -271,15 +271,22 @@ def _fetch_full_metrics(conn, user_id):
         else:
             td = _parse_target_date(target_date_raw)
             if td is not None:
-                ml = max(1, (td.year - today.year) * 12 + (td.month - today.month))
-                months_left_goal = ml
-                monthly_required = round(remaining / ml, 2)
-
                 overdue = td < today.date()
-                if overdue or monthly_required > avg_monthly_surplus * 1.5:
+                ml = _contribution_months(today, td)
+
+                if overdue:
+                    # No remaining contribution window: the goal is already overdue.
+                    months_left_goal = 0
+                    monthly_required = round(remaining, 2)
                     goal_risk = "high"
-                elif monthly_required > avg_monthly_surplus or ml <= 2:
-                    goal_risk = "medium"
+                else:
+                    months_left_goal = ml
+                    monthly_required = round(remaining / ml, 2)
+
+                    if monthly_required > avg_monthly_surplus * 1.5:
+                        goal_risk = "high"
+                    elif monthly_required > avg_monthly_surplus or ml <= 2:
+                        goal_risk = "medium"
             elif avg_monthly_surplus > 0:
                 months_left_goal = round(remaining / avg_monthly_surplus, 1)
                 monthly_required = round(avg_monthly_surplus, 2)
@@ -483,32 +490,31 @@ def _reword_no_income_risk_factors(main_risk_factors, income, cash_flow):
 
 
 def _fetch_current_month_category_totals(conn, user_id, cur_start):
-    """Return current month-to-date category totals only. Future-dated rows
-    must never affect the user's current spending view."""
-    cur_end = min(
-        _current_month_end_exclusive(),
-        (date.today() + timedelta(days=1)).strftime("%Y-%m-%d"),
-    )
+    """category -> current-calendar-month expense total, for categories
+    that actually have at least one transaction this month. Used only to
+    tell "no current-month activity" apart from "spending decreased" when
+    annotating category_forecasts below — a category simply missing from
+    this dict this month is NOT evidence of a downward trend."""
     rows = conn.execute("""
         SELECT COALESCE(category,'Misc') AS category,
                COALESCE(SUM(amount),0) AS total
         FROM transactions
-        WHERE user_id=%s AND type='expense' AND date>=%s AND date<%s
+        WHERE user_id=%s AND type='expense' AND date>=%s
         GROUP BY category
-    """, (user_id, cur_start, cur_end)).fetchall()
+    """, (user_id, cur_start)).fetchall()
     return {r["category"]: float(r["total"] or 0) for r in rows if float(r["total"] or 0) > 0}
 
 
 def _fetch_anomaly_input(conn, user_id):
     rows = conn.execute("""
-        SELECT id, amount, category, description, date
+        SELECT id, amount, category, description
         FROM transactions
         WHERE user_id=%s AND type='expense' AND status <> 'failed'
         ORDER BY date ASC
     """, (user_id,)).fetchall()
     return [
         {"id": r["id"], "amount": float(r["amount"] or 0),
-         "category": r["category"], "description": r["description"], "date": r["date"]}
+         "category": r["category"], "description": r["description"]}
         for r in rows
     ]
 
@@ -585,33 +591,7 @@ def unified_insights():
     confirmed_monthly_cost = round(sum(s["monthly_equivalent"] for s in active_subscriptions), 2)
     confirmed_annual_cost = round(sum(s["annualized_cost"] for s in active_subscriptions), 2)
     recurring_bill_monthly_burden = round(sum(b["monthly_equivalent"] for b in active_bills), 2)
-
-    # Every rupee shown in recurring burden is traceable to an active detected
-    # commitment. This breakdown is sent to both browser and Flutter clients.
-    burden_items = []
-    for item in active_bills:
-        burden_items.append({
-            "name": item["name"],
-            "category": item.get("category"),
-            "classification": item.get("classification"),
-            "monthly_equivalent": round(item["monthly_equivalent"], 2),
-            "frequency": item.get("frequency"),
-            "next_expected_date": item.get("next_expected_date"),
-            "source": "recurring_bill",
-        })
-    for item in active_subscriptions:
-        burden_items.append({
-            "name": item["name"],
-            "category": item.get("category"),
-            "classification": item.get("classification"),
-            "monthly_equivalent": round(item["monthly_equivalent"], 2),
-            "frequency": item.get("frequency"),
-            "next_expected_date": item.get("next_expected_date"),
-            "source": "subscription",
-        })
-    burden_items.sort(key=lambda x: (-x["monthly_equivalent"], x["name"].lower()))
-
-    monthly_burden = round(sum(i["monthly_equivalent"] for i in burden_items), 2)
+    monthly_burden = round(confirmed_monthly_cost + recurring_bill_monthly_burden, 2)
     annual_burden = round(monthly_burden * 12, 2)
 
     # Rule 2/3: must be sourced from the SAME active-lifecycle set that
@@ -797,7 +777,6 @@ def unified_insights():
             "overdue": overdue,
             "monthly_burden": monthly_burden,
             "annual_burden": annual_burden,
-            "burden_items": burden_items,
         },
 
         "subscriptions": {
@@ -813,8 +792,6 @@ def unified_insights():
 
         "spending": {
             "trend_pct": m["expense_change"],
-            "trend_basis": "month_to_date",
-            "comparison_days": date.today().day,
             "categories": display_category_forecasts,
             "top_category": {"name": m["top_cat_name"], "percent": m["top_cat_pct"]},
         },
