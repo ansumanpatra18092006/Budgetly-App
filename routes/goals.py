@@ -59,20 +59,22 @@ _GEMINI_SYSTEM_INSTRUCTION = (
 
 def _contribution_months(start: datetime, end: datetime) -> int:
     """
-    Return the number of calendar months in which the user can still
-    contribute toward a deadline, counting the current month and the
-    deadline month.
+    Return the number of calendar months still available for contributions,
+    counting both the current month and the target month.
 
-    Examples:
-      2026-09-08 -> 2026-10-31 = 2 contribution months (Sep, Oct)
-      2026-09-08 -> 2027-03-31 = 7 contribution months (Sep-Mar)
-
-    A deadline that has already passed still returns 0; callers can then
-    handle the overdue case explicitly.
+    Example:
+      2026-09-08 -> 2026-10-31 = 2 months (Sep + Oct)
+      2026-09-08 -> 2027-03-31 = 7 months (Sep through Mar)
     """
     if end.date() < start.date():
         return 0
-    return max(1, (end.year - start.year) * 12 + (end.month - start.month) + 1)
+
+    return max(
+        1,
+        (end.year - start.year) * 12
+        + (end.month - start.month)
+        + 1,
+    )
 
 
 def _coerce_target_date(value) -> Optional[datetime]:
@@ -638,9 +640,9 @@ def _compute_roadmap(goal: dict, metrics: dict, avg_income: float,
     if target_date:
         target_dt = _coerce_target_date(target_date)
         if target_dt is not None:
-            today           = datetime.today()
+            today = datetime.today()
             deadline_months = _contribution_months(today, target_dt)
-            months_required  = deadline_months
+            months_required = deadline_months
             required_monthly = (
                 round(remaining / deadline_months, 2)
                 if deadline_months > 0

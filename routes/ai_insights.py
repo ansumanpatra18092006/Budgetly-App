@@ -27,8 +27,10 @@ ai_insights_bp = Blueprint("ai_insights", __name__)
 def _contribution_months(start, end):
     """Inclusive calendar months available for contributions.
 
-    Accepts either datetime.datetime or datetime.date objects.
+    Accepts both datetime.date and datetime.datetime values.
     """
+    from datetime import date, datetime
+
     start_date = start.date() if isinstance(start, datetime) else start
     end_date = end.date() if isinstance(end, datetime) else end
 
@@ -272,21 +274,22 @@ def _fetch_full_metrics(conn, user_id):
             td = _parse_target_date(target_date_raw)
             if td is not None:
                 overdue = td < today.date()
-                ml = _contribution_months(today, td)
 
                 if overdue:
-                    # No remaining contribution window: the goal is already overdue.
                     months_left_goal = 0
                     monthly_required = round(remaining, 2)
                     goal_risk = "high"
                 else:
+                    ml = _contribution_months(today, td)
                     months_left_goal = ml
                     monthly_required = round(remaining / ml, 2)
 
                     if monthly_required > avg_monthly_surplus * 1.5:
                         goal_risk = "high"
-                    elif monthly_required > avg_monthly_surplus or ml <= 2:
+                    elif monthly_required > avg_monthly_surplus:
                         goal_risk = "medium"
+                    else:
+                        goal_risk = "low"
             elif avg_monthly_surplus > 0:
                 months_left_goal = round(remaining / avg_monthly_surplus, 1)
                 monthly_required = round(avg_monthly_surplus, 2)

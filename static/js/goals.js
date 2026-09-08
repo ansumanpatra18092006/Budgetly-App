@@ -84,7 +84,8 @@ function _renderGoalCards(goals) {
         const saved = Number(g.saved_amount || 0);
         const target = Number(g.target_amount || 0);
         const pct = g.progress_percent ?? (target > 0 ? Math.min((saved / target) * 100, 100) : 0);
-        const status = g.status ?? 'in_progress';
+        const rawStatus = g.status ?? 'in_progress';
+        const status = rawStatus === 'watch' ? 'in_progress' : rawStatus;
         const icon = categoryIcons[g.category] ?? 'fa-bullseye';
 
         const statusMeta = {
