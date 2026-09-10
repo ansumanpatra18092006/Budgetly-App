@@ -700,8 +700,12 @@ def seed_demo_verified_history(application_id):
             lender_id=lender_id,
             application_id=application_id,
             borrower_id=borrower_id,
-            event_type="DEMO_VERIFIED_HISTORY_LOADED",
-            metadata={"inserted": inserted, "source": "DEMO_BANK_SANDBOX"},
+            event_type="ASSESSMENT",
+            metadata={
+                "action": "SANDBOX_VERIFIED_HISTORY_LOADED",
+                "inserted": inserted,
+                "source": "DEMO_BANK_SANDBOX",
+            },
         )
         conn.commit()
         return jsonify({

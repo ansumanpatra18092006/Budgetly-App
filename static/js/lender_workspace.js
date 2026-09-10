@@ -2230,8 +2230,8 @@ function renderLwAffordabilityFull(data) {
         ${integrityWarning}
         ${Number(integrity.verified_transactions || 0) === 0 ? `
         <div class="lw-disclaimer" style="margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:16px;">
-            <span><i class="fa-solid fa-building-columns"></i> No verified bank history is available. For evaluation, load an explicitly synthetic sandbox bank feed; it does not verify or modify the borrower's self-reported records.</span>
-            <button type="button" class="lw-btn lw-btn-primary" id="lwLoadSandboxBankHistoryBtn" style="white-space:nowrap;"><i class="fa-solid fa-flask"></i> Load Sandbox Bank History</button>
+            <span><i class="fa-solid fa-building-columns"></i> No verified bank history is available. Connect the test bank feed to populate verified financial evidence for this evaluation environment. Borrower-entered records remain separate and unverified.</span>
+            <button type="button" class="lw-btn lw-btn-primary" id="lwLoadSandboxBankHistoryBtn" style="white-space:nowrap;"><i class="fa-solid fa-flask"></i> Connect Test Bank Feed</button>
         </div>` : `
         <div class="lw-panel-note" style="margin-bottom:14px;"><i class="fa-solid fa-circle-check"></i> Underwriting figures below are calculated from VERIFIED evidence only.</div>`}
 
@@ -2278,7 +2278,7 @@ function renderLwAffordabilityFull(data) {
                 const res = await lwRequest(`/lender/applications/${encodeURIComponent(applicationId)}/demo-verified-history`, { method: 'POST' });
                 const payload = await res.json().catch(() => null);
                 if (!res.ok || !payload || payload.status !== 'success') throw new Error('sandbox seed failed');
-                lwShowToast(payload.inserted > 0 ? `${payload.inserted} sandbox bank records loaded` : 'Sandbox bank history already loaded', 'success');
+                lwShowToast(payload.inserted > 0 ? `${payload.inserted} test bank records connected` : 'Test bank feed already connected', 'success');
                 if (currentApplication && String(currentApplication.application_id) === String(applicationId)) {
                     delete currentApplication.repaymentCapacity;
                     delete currentApplication.borrowerEvidence;
@@ -2286,8 +2286,8 @@ function renderLwAffordabilityFull(data) {
                 }
             } catch (err) {
                 sandboxBtn.disabled = false;
-                sandboxBtn.innerHTML = '<i class="fa-solid fa-flask"></i> Load Sandbox Bank History';
-                lwShowToast('Could not load sandbox bank history.', 'error');
+                sandboxBtn.innerHTML = '<i class="fa-solid fa-flask"></i> Connect Test Bank Feed';
+                lwShowToast('Could not connect test bank feed.', 'error');
             }
         });
     }

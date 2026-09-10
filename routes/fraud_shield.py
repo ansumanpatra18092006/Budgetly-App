@@ -1225,45 +1225,443 @@ def _derive_ingestion_context(conn, institution_id, body, parsed_ts):
     return ctx
 
 
-@fraud_shield_bp.route("/lender/fraudshield/intelligence/ingest", methods=["POST"])
+@fraud_shield_bp.route(
+    "/lender/fraudshield/intelligence/ingest",
+    methods=["POST"],
+)
 @lender_required
 def fraud_ingest():
-    """Ingest one simulated/live event with replay protection and scoring."""
-    institution_id=session["user_id"]
-    body=request.get_json(silent=True) or {}
-    if not body.get("account_ref") or not body.get("amount"):
-        return jsonify({"status":"error","errors":["account_ref and amount are required"]}),400
-    fp=event_fingerprint(body)
-    conn=get_db()
+    """
+    Ingest one simulated/live FraudShield event.
+
+    Flow:
+    1. Validate the incoming event.
+    2. Block duplicate/replayed events.
+    3. Derive contextual fraud features from institution history.
+    4. Score the transaction.
+    5. Persist the transaction.
+    6. Register replay protection.
+    7. Run Fraud Autopilot.
+    8. Audit the event.
+    9. Commit everything atomically.
+    """
+
+    institution_id = session["user_id"]
+    body = request.get_json(silent=True) or {}
+
+    # ------------------------------------------------------------------
+    # 1. Basic validation
+    # ------------------------------------------------------------------
+    account_ref = str(body.get("account_ref") or "").strip()
+
+    if not account_ref:
+        return jsonify({
+            "status": "error",
+            "errors": ["account_ref is required"],
+        }), 400
+
     try:
-        existing=conn.execute("SELECT id,duplicate_count FROM fraudshield_replay_registry WHERE institution_id=%s AND fingerprint=%s",(institution_id,fp)).fetchone()
+        amount = float(body.get("amount"))
+    except (TypeError, ValueError):
+        return jsonify({
+            "status": "error",
+            "errors": ["amount must be a valid number"],
+        }), 400
+
+    if amount <= 0:
+        return jsonify({
+            "status": "error",
+            "errors": ["amount must be greater than 0"],
+        }), 400
+
+    # ------------------------------------------------------------------
+    # 2. Build timestamp safely
+    # ------------------------------------------------------------------
+    raw_timestamp = (
+        body.get("timestamp")
+        or body.get("transaction_timestamp")
+        or datetime.now(timezone.utc).isoformat()
+    )
+
+    try:
+        parsed_ts = datetime.fromisoformat(
+            str(raw_timestamp).replace("Z", "+00:00")
+        )
+
+        if parsed_ts.tzinfo is None:
+            parsed_ts = parsed_ts.replace(tzinfo=timezone.utc)
+
+    except (TypeError, ValueError):
+        parsed_ts = datetime.now(timezone.utc)
+
+    # ------------------------------------------------------------------
+    # 3. Stable transaction reference
+    # ------------------------------------------------------------------
+    txref = (
+        str(body.get("transaction_ref") or "").strip()
+        or f"FS-LIVE-{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+    )
+
+    utr = body.get("utr")
+
+    # Fingerprint is based on incoming financial event data.
+    fingerprint_payload = dict(body)
+    fingerprint_payload.setdefault("account_ref", account_ref)
+    fingerprint_payload.setdefault("amount", amount)
+    fingerprint_payload.setdefault("transaction_ref", txref)
+
+    fp = event_fingerprint(fingerprint_payload)
+
+    conn = get_db()
+
+    try:
+        # Make sure an older deployment has the intelligence tables/columns
+        # required by the ingestion path.
+        _ensure_intelligence_schema(conn)
+
+        # --------------------------------------------------------------
+        # 4. Replay / duplicate protection
+        # --------------------------------------------------------------
+        existing = conn.execute(
+            """
+            SELECT id, duplicate_count
+            FROM fraudshield_replay_registry
+            WHERE institution_id = %s
+              AND fingerprint = %s
+            """,
+            (institution_id, fp),
+        ).fetchone()
+
         if existing:
-            conn.execute("UPDATE fraudshield_replay_registry SET duplicate_count=duplicate_count+1,last_seen=now() WHERE id=%s",(existing["id"],))
-            _audit(conn,institution_id,"REPLAY_BLOCKED","transaction",body.get("transaction_ref"),{"fingerprint":fp})
+            new_duplicate_count = int(existing["duplicate_count"] or 0) + 1
+
+            conn.execute(
+                """
+                UPDATE fraudshield_replay_registry
+                SET duplicate_count = duplicate_count + 1,
+                    last_seen = now()
+                WHERE id = %s
+                """,
+                (existing["id"],),
+            )
+
+            _audit(
+                conn,
+                institution_id,
+                "REPLAY_BLOCKED",
+                "transaction",
+                txref,
+                {
+                    "fingerprint": fp,
+                    "duplicate_count": new_duplicate_count,
+                },
+            )
+
             conn.commit()
-            return jsonify({"status":"success","duplicate":True,"message":"Duplicate/replay event blocked","duplicate_count":int(existing["duplicate_count"])+1})
-        ts=body.get("timestamp") or datetime.now(timezone.utc).isoformat()
-        try: parsed_ts=datetime.fromisoformat(str(ts).replace("Z","+00:00"))
-        except Exception: parsed_ts=datetime.now(timezone.utc)
-        derived=_derive_ingestion_context(conn,institution_id,body,parsed_ts)
-        tx={
-            "account_ref":body.get("account_ref"),"merchant":body.get("merchant","Unknown Merchant"),"amount":float(body.get("amount")),"transaction_timestamp":parsed_ts,
-            "location":body.get("location"),"device_id":body.get("device_id"),"account_age_days":derived["account_age_days"],"txn_count_1h":derived["txn_count_1h"],"txn_count_24h":derived["txn_count_24h"],"location_distance_km":derived["location_distance_km"],"is_new_device":derived["is_new_device"],"merchant_risk":derived["merchant_risk"],"transaction_hour":parsed_ts.hour,"relationship_count":derived["relationship_count"],"merchant_seen_before":derived["merchant_seen_before"],"device_trust_score":derived["device_trust_score"],"time_deviation_hours":derived["time_deviation_hours"],"amount_to_account_median":derived["amount_to_account_median"],"network_risk":derived["network_risk"],"channel":body.get("channel","UPI"),"failed_auth_count":derived["failed_auth_count"],"previous_location":derived.get("previous_location"),"previous_transaction_timestamp":derived.get("previous_transaction_timestamp")
+
+            return jsonify({
+                "status": "success",
+                "duplicate": True,
+                "message": "Duplicate/replay event blocked",
+                "transaction_ref": txref,
+                "duplicate_count": new_duplicate_count,
+            }), 200
+
+        # --------------------------------------------------------------
+        # 5. Derive contextual intelligence
+        # --------------------------------------------------------------
+        derived = _derive_ingestion_context(
+            conn,
+            institution_id,
+            body,
+            parsed_ts,
+        )
+
+        tx = {
+            "account_ref": account_ref,
+            "merchant": str(
+                body.get("merchant") or "Unknown Merchant"
+            ).strip(),
+            "amount": amount,
+            "transaction_timestamp": parsed_ts,
+            "location": body.get("location"),
+            "device_id": body.get("device_id"),
+
+            "account_age_days": int(
+                derived.get("account_age_days") or 0
+            ),
+
+            "txn_count_1h": int(
+                derived.get("txn_count_1h") or 0
+            ),
+
+            "txn_count_24h": int(
+                derived.get("txn_count_24h") or 0
+            ),
+
+            "location_distance_km": float(
+                derived.get("location_distance_km") or 0
+            ),
+
+            "is_new_device": bool(
+                derived.get("is_new_device")
+            ),
+
+            "merchant_risk": float(
+                derived.get("merchant_risk") or 0
+            ),
+
+            "transaction_hour": parsed_ts.hour,
+
+            "relationship_count": int(
+                derived.get("relationship_count") or 0
+            ),
+
+            "merchant_seen_before": bool(
+                derived.get("merchant_seen_before")
+            ),
+
+            "device_trust_score": float(
+                derived.get("device_trust_score") or 0
+            ),
+
+            "time_deviation_hours": float(
+                derived.get("time_deviation_hours") or 0
+            ),
+
+            "amount_to_account_median": float(
+                derived.get("amount_to_account_median") or 1
+            ),
+
+            "network_risk": float(
+                derived.get("network_risk") or 0
+            ),
+
+            "channel": str(
+                body.get("channel") or "UPI"
+            ).strip(),
+
+            "failed_auth_count": int(
+                derived.get("failed_auth_count") or 0
+            ),
+
+            "previous_location": derived.get(
+                "previous_location"
+            ),
+
+            "previous_transaction_timestamp": derived.get(
+                "previous_transaction_timestamp"
+            ),
+
+            "beneficiary_ref": body.get("beneficiary_ref"),
+            "ip_address": body.get("ip_address"),
+            "browser": body.get("browser"),
+            "os": body.get("os"),
         }
-        risk=_score_with_rules(conn,institution_id,tx)
-        txref=body.get("transaction_ref") or f"FS-LIVE-{int(datetime.now(timezone.utc).timestamp()*1000)}"
-        utr=body.get("utr")
-        inserted_tx=conn.execute("""INSERT INTO fraudshield_transactions
-          (institution_id,account_ref,merchant,amount,transaction_timestamp,location,device_id,account_age_days,txn_count_1h,txn_count_24h,location_distance_km,is_new_device,merchant_risk,transaction_hour,relationship_count,merchant_seen_before,device_trust_score,time_deviation_hours,amount_to_account_median,network_risk,channel,transaction_ref,utr,failed_auth_count,previous_location,previous_transaction_timestamp)
-          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-          (institution_id,tx["account_ref"],tx["merchant"],tx["amount"],parsed_ts,tx.get("location"),tx.get("device_id"),tx["account_age_days"],tx["txn_count_1h"],tx["txn_count_24h"],tx["location_distance_km"],tx["is_new_device"],tx["merchant_risk"],tx["transaction_hour"],tx["relationship_count"],tx["merchant_seen_before"],tx["device_trust_score"],tx["time_deviation_hours"],tx["amount_to_account_median"],tx["network_risk"],tx["channel"],txref,utr,tx["failed_auth_count"],tx.get("previous_location"),None))
-        conn.execute("INSERT INTO fraudshield_replay_registry(institution_id,fingerprint,transaction_ref) VALUES (%s,%s,%s)",(institution_id,fp,txref))
-        tx["id"]=inserted_tx["id"]; tx["transaction_ref"]=txref; tx["utr"]=utr
-        response=_run_autonomous_response(conn,institution_id,tx,risk)
-        _audit(conn,institution_id,"TRANSACTION_INGESTED","transaction",txref,{"risk_score":risk["score"],"autopilot_action":response.get("action")})
+
+        # --------------------------------------------------------------
+        # 6. Score transaction BEFORE persistence
+        # --------------------------------------------------------------
+        risk = _score_with_rules(
+            conn,
+            institution_id,
+            tx,
+        )
+
+        # --------------------------------------------------------------
+        # 7. Persist transaction
+        #
+        # IMPORTANT:
+        # psycopg conn.execute() returns a Cursor.
+        # RETURNING id must therefore be followed by fetchone().
+        # --------------------------------------------------------------
+        inserted_tx = conn.execute(
+            """
+            INSERT INTO fraudshield_transactions (
+                institution_id,
+                account_ref,
+                merchant,
+                amount,
+                transaction_timestamp,
+                location,
+                device_id,
+                account_age_days,
+                txn_count_1h,
+                txn_count_24h,
+                location_distance_km,
+                is_new_device,
+                merchant_risk,
+                transaction_hour,
+                relationship_count,
+                merchant_seen_before,
+                device_trust_score,
+                time_deviation_hours,
+                amount_to_account_median,
+                network_risk,
+                channel,
+                transaction_ref,
+                utr,
+                failed_auth_count,
+                previous_location,
+                previous_transaction_timestamp,
+                beneficiary_ref,
+                ip_address,
+                browser,
+                os
+            )
+            VALUES (
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s
+            )
+            RETURNING id
+            """,
+            (
+                institution_id,
+                tx["account_ref"],
+                tx["merchant"],
+                tx["amount"],
+                tx["transaction_timestamp"],
+                tx.get("location"),
+                tx.get("device_id"),
+                tx["account_age_days"],
+                tx["txn_count_1h"],
+                tx["txn_count_24h"],
+                tx["location_distance_km"],
+                tx["is_new_device"],
+                tx["merchant_risk"],
+                tx["transaction_hour"],
+                tx["relationship_count"],
+                tx["merchant_seen_before"],
+                tx["device_trust_score"],
+                tx["time_deviation_hours"],
+                tx["amount_to_account_median"],
+                tx["network_risk"],
+                tx["channel"],
+                txref,
+                utr,
+                tx["failed_auth_count"],
+                tx.get("previous_location"),
+                tx.get("previous_transaction_timestamp"),
+                tx.get("beneficiary_ref"),
+                tx.get("ip_address"),
+                tx.get("browser"),
+                tx.get("os"),
+            ),
+        ).fetchone()
+
+        if not inserted_tx:
+            raise RuntimeError(
+                "FraudShield transaction INSERT returned no row"
+            )
+
+        transaction_id = inserted_tx["id"]
+
+        tx["id"] = transaction_id
+        tx["transaction_ref"] = txref
+        tx["utr"] = utr
+
+        # --------------------------------------------------------------
+        # 8. Record replay fingerprint
+        # --------------------------------------------------------------
+        conn.execute(
+            """
+            INSERT INTO fraudshield_replay_registry (
+                institution_id,
+                fingerprint,
+                transaction_ref
+            )
+            VALUES (%s, %s, %s)
+            """,
+            (
+                institution_id,
+                fp,
+                txref,
+            ),
+        )
+
+        # --------------------------------------------------------------
+        # 9. Run Fraud Autopilot
+        # --------------------------------------------------------------
+        response = _run_autonomous_response(
+            conn,
+            institution_id,
+            tx,
+            risk,
+        )
+
+        # --------------------------------------------------------------
+        # 10. Audit successful ingestion
+        # --------------------------------------------------------------
+        _audit(
+            conn,
+            institution_id,
+            "TRANSACTION_INGESTED",
+            "transaction",
+            txref,
+            {
+                "transaction_id": transaction_id,
+                "risk_score": risk.get("score"),
+                "risk_level": (
+                    risk.get("level_label")
+                    or risk.get("level")
+                ),
+                "autopilot_action": response.get("action"),
+                "channel": tx.get("channel"),
+            },
+        )
+
+        # Commit transaction + replay record + Autopilot response +
+        # investigation + audit atomically.
         conn.commit()
-        _invalidate_intelligence_snapshot(institution_id)
-        return jsonify({"status":"success","duplicate":False,"transaction_ref":txref,"risk":risk,"triage":risk["triage"],"autopilot":_response_public(response)})
+
+        _invalidate_intelligence_snapshot(
+            institution_id
+        )
+
+        return jsonify({
+            "status": "success",
+            "duplicate": False,
+
+            "transaction": {
+                "id": transaction_id,
+                "transaction_ref": txref,
+                "account_ref": tx["account_ref"],
+                "merchant": tx["merchant"],
+                "amount": tx["amount"],
+                "timestamp": parsed_ts.isoformat(),
+                "channel": tx["channel"],
+                "utr": utr,
+            },
+
+            "risk": risk,
+
+            "triage": risk.get("triage"),
+
+            "autopilot": _response_public(
+                response
+            ),
+        }), 201
+
+    except Exception:
+        conn.rollback()
+
+        logger.exception(
+            "FraudShield transaction ingestion failed "
+            "institution=%s transaction_ref=%s",
+            institution_id,
+            txref,
+        )
+
+        return jsonify({
+            "status": "error",
+            "message": "FraudShield could not process this transaction.",
+            "transaction_ref": txref,
+        }), 500
+
     finally:
         conn.close()
 

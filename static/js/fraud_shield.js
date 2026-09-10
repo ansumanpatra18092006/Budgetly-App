@@ -70,12 +70,6 @@ function lwFraudRenderModelCard(model) {
             <div class="lw-fraud-model-sub">${escapeLwHtml(model.dataset || 'Fraud transaction dataset')} · ${escapeLwHtml(String(model.training_records || 0))} training records · Fraud detection engine</div>
           </div>
         </div>
-        <div class="lw-fraud-model-metrics">
-          <div class="lw-fraud-metric"><span>ROC-AUC</span><strong>${escapeLwHtml(model.roc_auc ?? '—')}</strong></div>
-          <div class="lw-fraud-metric"><span>Precision</span><strong>${escapeLwHtml(model.precision ?? '—')}</strong></div>
-          <div class="lw-fraud-metric"><span>Recall</span><strong>${escapeLwHtml(model.recall ?? '—')}</strong></div>
-          <div class="lw-fraud-metric"><span>F1</span><strong>${escapeLwHtml(model.f1 ?? '—')}</strong></div>
-        </div>
       </div>
       <div class="lw-fraud-engine-strip">
         <div><span class="lw-fraud-online-dot"></span>Detection engine online</div>
