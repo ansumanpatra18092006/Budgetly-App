@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: fintrust-web
+    runtime: docker
+    healthCheckPath: /ready
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+  - type: worker
+    name: fraudshield-worker
+    runtime: docker
+    dockerCommand: python -m workers.fraud_worker
+    envVars:
+      - key: DATABASE_URL
+        sync: false

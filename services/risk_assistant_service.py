@@ -590,7 +590,7 @@ def _build_context(applicant: dict, borrower_id: int, assessment_result: dict) -
     explanation = _safe_call(explain_credit_risk, applicant, label="decision_explanation")
     anomaly = _safe_call(check_credit_anomaly, applicant, label="anomaly_check")
     affordability = _safe_call(calculate_affordability, borrower_id, applicant, label="affordability")
-    financial_behavior = _safe_call(get_financial_behavior_profile, borrower_id, label="financial_behavior")
+    financial_behavior = _safe_call(lambda uid: get_financial_behavior_profile(uid, verified_only=True), borrower_id, label="financial_behavior")
 
     return {
         "existing_assessment": {

@@ -192,7 +192,7 @@ def financial_behavior():
         }), 200
 
     try:
-        profile = get_financial_behavior_profile(borrower_id)
+        profile = get_financial_behavior_profile(borrower_id, verified_only=True)
         return jsonify(profile), 200
     except Exception:
         return jsonify({

@@ -23,6 +23,7 @@ from flask import Blueprint, request, jsonify, session, render_template, abort
 
 from utils.decorators import login_required
 from utils.db import get_db
+from services.transaction_provenance_service import get_transaction_provenance
 
 loan_application_bp = Blueprint("loan_application", __name__)
 logger = logging.getLogger(__name__)
@@ -213,6 +214,9 @@ def create_loan_application():
             """,
             (borrower_id, lender_id, json.dumps(application_data)),
         ).fetchone()
+        evidence = get_transaction_provenance(borrower_id, row["created_at"], connection=conn)
+        conn.execute("UPDATE loan_applications SET submission_provenance=%s WHERE id=%s",
+                     (json.dumps(evidence), row["id"]))
         conn.commit()
     except Exception:
         conn.rollback()

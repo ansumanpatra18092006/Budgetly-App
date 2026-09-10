@@ -9,8 +9,15 @@ import io
 import re
 import time
 import logging
+import os
+import hmac
 
 from ml.category_model import predict_category
+from services.transaction_provenance import (
+    consumer_manual_provenance,
+    csv_import_provenance,
+    document_import_provenance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -982,6 +989,12 @@ def _transaction_response(row):
         "utr": row.get("utr"),
         "source": row.get("source"),
         "status": row.get("status") or "completed",
+        "verification_status": row.get("verification_status") or "UNVERIFIED",
+        "verification_source": row.get("verification_source"),
+        "verified_at": _format_db_timestamp(row.get("verified_at")),
+        "verification_reference": row.get("verification_reference"),
+        "lender_eligible": (row.get("verification_status") == "VERIFIED"),
+        "fraudshield_reported": bool(row.get("fraudshield_reported", False)),
     }
 
 
@@ -1028,6 +1041,8 @@ def add_transaction():
     if not category or category not in ALLOWED_CATEGORIES:
         category = "Misc"
 
+    verification_status, verification_source, verified_at, verification_reference = consumer_manual_provenance()
+
     def _insert(conn):
         if reference_id:
             existing = conn.execute(
@@ -1039,16 +1054,145 @@ def add_transaction():
 
         cur = conn.execute(
             "INSERT INTO transactions "
-            "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source, verification_status, verification_source, verified_at, verification_reference) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
             "RETURNING id",
-            (user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source)
+            (user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source,
+             verification_status, verification_source, verified_at, verification_reference)
         )
         return cur.fetchone()["id"], False
 
     tid, duplicate = _db_execute(_insert)
     return jsonify({"success": True, "id": tid, "duplicate": duplicate})
 
+
+@transactions_bp.route("/report-suspicious-to-fraudshield/<int:tid>", methods=["POST"])
+@login_required
+def report_transaction_to_fraudshield(tid):
+    """Send an explicit, minimal security signal to a connected institution's FraudShield."""
+    consumer_id = session["user_id"]
+    body = request.get_json(silent=True) or {}
+    note = (body.get("note") or "").strip()[:500] or None
+    conn = get_db()
+    try:
+        tx = conn.execute(
+            """SELECT id, description, amount, category, transaction_timestamp, reference_id, date
+               FROM transactions WHERE id=%s AND user_id=%s""",
+            (tid, consumer_id),
+        ).fetchone()
+        if not tx:
+            return jsonify({"success": False, "error": "Transaction not found."}), 404
+
+        institution = conn.execute(
+            """SELECT lender_id FROM loan_applications
+               WHERE borrower_id=%s AND status IN ('PENDING','APPROVED')
+               ORDER BY updated_at DESC NULLS LAST, created_at DESC LIMIT 1""",
+            (consumer_id,),
+        ).fetchone()
+        institution_id = institution["lender_id"] if institution else None
+
+        existing = conn.execute(
+            """SELECT id,status FROM fraudshield_consumer_signals
+               WHERE consumer_id=%s AND source_transaction_id=%s
+                 AND event_type='USER_REPORTED_SUSPICIOUS' LIMIT 1""",
+            (consumer_id, tid),
+        ).fetchone()
+        if existing:
+            return jsonify({"success": True, "already_reported": True, "routed": bool(institution_id), "status": existing["status"]})
+
+        conn.execute(
+            """INSERT INTO fraudshield_consumer_signals
+               (institution_id, consumer_id, source_transaction_id, event_type,
+                amount, merchant, category, transaction_timestamp,
+                transaction_reference, note, consent_scope)
+               VALUES (%s,%s,%s,'USER_REPORTED_SUSPICIOUS',%s,%s,%s,%s,%s,%s,'EXPLICIT_USER_REPORT')""",
+            (institution_id, consumer_id, tid, float(tx["amount"] or 0),
+             tx["description"] or "Unknown merchant", tx["category"] or "Misc",
+             tx["transaction_timestamp"], tx["reference_id"] or f"consumer-tx-{tid}", note),
+        )
+        conn.commit()
+        return jsonify({
+            "success": True, "already_reported": False, "routed": bool(institution_id),
+            "message": ("Suspicious activity report sent to your connected institution's FraudShield."
+                        if institution_id else
+                        "Report saved. No connected institution is currently available for routing.")
+        })
+    except Exception:
+        conn.rollback()
+        logger.exception("Consumer FraudShield report failed for transaction %s", tid)
+        return jsonify({"success": False, "error": "Could not submit the security report."}), 500
+    finally:
+        conn.close()
+
+@transactions_bp.route("/transactions/verification-callback", methods=["POST"])
+def trusted_transaction_verification_callback():
+    """Trusted server-to-server payment/bank verification callback.
+
+    A shared secret is required. Consumer routes can never promote their own
+    transaction to VERIFIED. In production this generic token should be
+    replaced by the payment provider's signed webhook verification.
+    """
+    expected = os.environ.get("FINTRUST_VERIFICATION_TOKEN", "").strip()
+    supplied = request.headers.get("X-FinTrust-Verification-Token", "").strip()
+    if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+        return jsonify({"success": False, "error": "Unauthorized verification callback."}), 401
+
+    body = request.get_json(silent=True) or {}
+    reference_id = str(body.get("reference_id") or "").strip()[:150]
+    provider_status = str(body.get("status") or "").strip().upper()
+    provider = str(body.get("provider") or "PAYMENT_GATEWAY_WEBHOOK").strip().upper()[:80]
+    verification_reference = str(body.get("verification_reference") or reference_id).strip()[:200] or None
+
+    if not reference_id:
+        return jsonify({"success": False, "error": "reference_id is required."}), 400
+
+    if provider_status in {"SUCCESS", "CAPTURED", "COMPLETED", "PAID"}:
+        target_status = "VERIFIED"
+    elif provider_status in {"FAILED", "FAILURE", "DECLINED"}:
+        target_status = "FAILED"
+    elif provider_status in {"PENDING", "SUBMITTED", "PROCESSING"}:
+        target_status = "PENDING"
+    else:
+        return jsonify({"success": False, "error": "Unsupported provider status."}), 400
+
+    conn = get_db()
+    try:
+        if target_status == "VERIFIED":
+            cur = conn.execute(
+                """UPDATE transactions
+                   SET verification_status='VERIFIED', verification_source=%s,
+                       verified_at=NOW(), verification_reference=%s, status='completed'
+                   WHERE reference_id=%s
+                   RETURNING id, user_id""",
+                (provider, verification_reference, reference_id),
+            )
+        else:
+            cur = conn.execute(
+                """UPDATE transactions
+                   SET verification_status=%s, verification_source=%s,
+                       verified_at=NULL, verification_reference=%s,
+                       status=CASE WHEN %s='FAILED' THEN 'failed' ELSE status END
+                   WHERE reference_id=%s
+                   RETURNING id, user_id""",
+                (target_status, provider, verification_reference, target_status, reference_id),
+            )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return jsonify({"success": False, "error": "Transaction reference not found."}), 404
+        conn.commit()
+        return jsonify({
+            "success": True,
+            "transaction_id": row["id"],
+            "verification_status": target_status,
+            "lender_eligible": target_status == "VERIFIED",
+        })
+    except Exception:
+        conn.rollback()
+        logger.exception("Trusted transaction verification callback failed for %s", reference_id)
+        return jsonify({"success": False, "error": "Verification update failed."}), 500
+    finally:
+        conn.close()
 
 @transactions_bp.route("/get-transactions")
 @login_required
@@ -1060,7 +1204,18 @@ def get_transactions():
     t_type   = request.args.get("type")
     search   = (request.args.get("search") or "").strip()
 
-    query  = "SELECT * FROM transactions WHERE user_id = %s"
+    query  = """
+        SELECT t.*,
+               EXISTS (
+                   SELECT 1 FROM fraudshield_consumer_signals fs
+                   WHERE fs.consumer_id = t.user_id
+                     AND fs.source_transaction_id = t.id
+                     AND fs.event_type = 'USER_REPORTED_SUSPICIOUS'
+                     AND fs.status <> 'RESOLVED'
+               ) AS fraudshield_reported
+        FROM transactions t
+        WHERE t.user_id = %s
+    """
     params: list = [user_id]
 
     if start:
@@ -1135,7 +1290,9 @@ def update_transaction(tid):
         cur = conn.execute(
             "UPDATE transactions "
             "SET description=%s, amount=%s, category=%s, type=%s, date=%s, "
-            "transaction_timestamp=%s, reference_id=%s, utr=%s, source=%s "
+            "transaction_timestamp=%s, reference_id=%s, utr=%s, source=%s, "
+            "verification_status='SELF_REPORTED', verification_source='USER_EDIT', "
+            "verified_at=NULL, verification_reference=NULL "
             "WHERE id=%s AND user_id=%s",
             (description, amount, category, t_type, date, transaction_timestamp, reference_id, utr, source, tid, user_id)
         )
@@ -1295,9 +1452,10 @@ def import_transactions():
 
                 conn.execute(
                     "INSERT INTO transactions "
-                    "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source)
+                    "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source, verification_status, verification_source, verification_reference) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (user_id, description, amount, t_type, category, date, transaction_timestamp, reference_id, utr, source,
+                     *csv_import_provenance(reference_id)[:2], csv_import_provenance(reference_id)[3])
                 )
                 inserted += 1
 
@@ -1382,9 +1540,10 @@ def upload_statement():
             for t in transactions:
                 conn.execute(
                     "INSERT INTO transactions "
-                    "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (user_id, t["description"], t["amount"], t["type"], t["category"], t["date"], t.get("transaction_timestamp"), t.get("reference_id"), t.get("utr"), t.get("source", "Statement"))
+                    "(user_id, description, amount, type, category, date, transaction_timestamp, reference_id, utr, source, verification_status, verification_source, verification_reference) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (user_id, t["description"], t["amount"], t["type"], t["category"], t["date"], t.get("transaction_timestamp"), t.get("reference_id"), t.get("utr"), t.get("source", "Statement"),
+                     *document_import_provenance(t.get("reference_id"))[:2], document_import_provenance(t.get("reference_id"))[3])
                 )
             conn.commit()
         finally:

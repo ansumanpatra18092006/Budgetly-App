@@ -621,7 +621,7 @@ def borrower_evidence_lender_application(application_id):
 
     borrower_id = row["borrower_id"]
 
-    result = get_financial_behavior_profile(borrower_id)
+    result = get_financial_behavior_profile(borrower_id, verified_only=True)
 
     if not isinstance(result, dict) or result.get("status") != "success":
         error_payload = result if isinstance(result, dict) else {
@@ -634,6 +634,87 @@ def borrower_evidence_lender_application(application_id):
     response_payload = dict(result)
     response_payload["application_id"] = row["id"]
     return jsonify(response_payload)
+
+
+
+@lender_bp.route("/lender/applications/<int:application_id>/demo-verified-history", methods=["POST"])
+@lender_required
+def seed_demo_verified_history(application_id):
+    """Load an explicitly synthetic bank-feed history for evaluation/demo use.
+
+    This never promotes borrower-entered transactions.  It inserts separate,
+    lender-triggered rows whose provenance is DEMO_BANK_SANDBOX so the UI can
+    demonstrate verified-only underwriting without misrepresenting self-reported
+    data as bank verified.  Ownership is still derived from the stored
+    application and signed-in lender.
+    """
+    lender_id = session["user_id"]
+    conn = get_db()
+    try:
+        app = conn.execute(
+            "SELECT id, borrower_id FROM loan_applications WHERE id=%s AND lender_id=%s",
+            (application_id, lender_id),
+        ).fetchone()
+        if not app:
+            abort(404)
+
+        borrower_id = app["borrower_id"]
+        # Four months is enough to demonstrate stability/trend calculations.
+        # Values are intentionally plausible and deterministic for repeatable demos.
+        monthly_rows = [
+            ("Salary credit", 60000, "income", "Salary"),
+            ("House rent", 12000, "expense", "Housing"),
+            ("Groceries", 6000, "expense", "Food"),
+            ("Utilities", 2500, "expense", "Bills"),
+            ("Transport", 3000, "expense", "Transport"),
+            ("Subscriptions", 1000, "expense", "Subscriptions"),
+        ]
+        inserted = 0
+        for month_offset in range(4):
+            for row_index, (description, amount, tx_type, category) in enumerate(monthly_rows, start=1):
+                ref = f"DEMO-BANK-{borrower_id}-{month_offset}-{row_index}"
+                cur = conn.execute(
+                    """
+                    INSERT INTO transactions
+                        (user_id, description, amount, type, category, date,
+                         transaction_timestamp, reference_id, source,
+                         verification_status, verification_source, verified_at,
+                         verification_reference, status)
+                    VALUES
+                        (%s,%s,%s,%s,%s,
+                         (CURRENT_DATE - (%s * INTERVAL '1 month'))::date,
+                         (CURRENT_TIMESTAMP - (%s * INTERVAL '1 month')),
+                         %s,'DEMO_BANK_SANDBOX','VERIFIED','SANDBOX_BANK_FEED',
+                         CURRENT_TIMESTAMP,%s,'completed')
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                    """,
+                    (borrower_id, description, amount, tx_type, category,
+                     month_offset, month_offset, ref, ref),
+                ).fetchone()
+                if cur:
+                    inserted += 1
+
+        _audit_event(
+            conn,
+            lender_id=lender_id,
+            application_id=application_id,
+            borrower_id=borrower_id,
+            event_type="DEMO_VERIFIED_HISTORY_LOADED",
+            metadata={"inserted": inserted, "source": "DEMO_BANK_SANDBOX"},
+        )
+        conn.commit()
+        return jsonify({
+            "status": "success",
+            "inserted": inserted,
+            "source": "DEMO_BANK_SANDBOX",
+            "message": "Sandbox bank history loaded. These are synthetic VERIFIED demo records; borrower-entered records remain unverified.",
+        })
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 @lender_bp.route("/lender/applications/<int:application_id>/repayment-capacity", methods=["POST"])

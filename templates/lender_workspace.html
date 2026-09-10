@@ -4,15 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FinTrust | Credit Risk Intelligence</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>FinTrust | FraudShield — Financial Institution</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/lender_workspace.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/lender_workspace_refinement.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fraud_shield.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/icon_fallback.css') }}">
 </head>
 
 <body>
-    <div class="lender-workspace">
+    <div class="lender-workspace system-fraud-mode" data-system-mode="fraud">
 
         <!-- ============================================================
              HEADER
@@ -22,7 +23,7 @@
                 <div class="lw-brand-mark"><i class="fa-solid fa-building-columns"></i></div>
                 <div class="lw-brand-text">
                     <span class="lw-brand-product">FinTrust</span>
-                    <span class="lw-brand-title">Credit Risk Intelligence</span>
+                    <span class="lw-brand-title">Financial Institution Workspace</span>
                 </div>
             </div>
             <div class="lw-header-right">
@@ -34,7 +35,7 @@
                     <div class="lw-analyst-avatar" id="lwAnalystAvatar" aria-hidden="true">…</div>
                     <div class="lw-analyst-identity">
                         <div class="lw-analyst-name" id="lwAnalystName">Loading…</div>
-                        <div class="lw-analyst-role">Credit Risk</div>
+                        <div class="lw-analyst-role" id="lwAnalystRole">Credit Risk Analyst</div>
                     </div>
                 </div>
                 <a class="lw-signout" id="logoutLink"><i class="fa-solid fa-arrow-right-from-bracket"></i> Sign out</a>
@@ -44,7 +45,7 @@
         <!-- ============================================================
              CASE IDENTITY BAR — filled from currentApplication
         ============================================================= -->
-        <div class="lw-context-strip" id="lwContextStrip">
+        <div class="lw-context-strip phase1-hidden" id="lwContextStrip" style="display:none!important;">
             <div class="lw-context-item">
                 <span class="lw-context-label">Applicant</span>
                 <span class="lw-context-value" id="lwContextApplicant">—</span>
@@ -75,13 +76,24 @@
 
         <div class="lw-desk">
             <nav class="lw-nav">
-                <div class="lw-nav-group">
+                <div class="lw-system-switcher" role="tablist" aria-label="Institution systems">
+                    <div class="lw-system-switcher-label">SYSTEMS</div>
+                    <div class="lw-system-switcher-buttons">
+                        <button type="button" class="lw-system-switch-btn active" data-system="fraud" role="tab" aria-selected="true">
+                            <i class="fa-solid fa-shield-halved"></i><span>FraudShield</span>
+                        </button>
+                        <button type="button" class="lw-system-switch-btn" data-system="lender" role="tab" aria-selected="false">
+                            <i class="fa-solid fa-building-columns"></i><span>Lender System</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="lw-nav-group lender-system-nav">
                     <div class="lw-nav-group-label">Work Queue</div>
-                    <button type="button" class="lw-nav-item active" data-section="queue"><i
+                    <button type="button" class="lw-nav-item" data-section="queue"><i
                             class="fa-solid fa-inbox"></i>
                         Queue</button>
                 </div>
-                <div class="lw-nav-group">
+                <div class="lw-nav-group lender-system-nav">
                     <div class="lw-nav-group-label">Case Review</div>
                     <button type="button" class="lw-nav-item" data-section="application" style="display:none;"><i
                             class="fa-solid fa-file-invoice"></i> Application</button>
@@ -94,7 +106,7 @@
                             class="fa-solid fa-file-lines"></i>
                         Borrower Evidence</button>
                 </div>
-                <div class="lw-nav-group">
+                <div class="lw-nav-group lender-system-nav">
                     <div class="lw-nav-group-label">Risk Analysis</div>
                     <button type="button" class="lw-nav-item" data-section="explain"><i
                             class="fa-solid fa-magnifying-glass-chart"></i> Decision Explanation</button>
@@ -103,12 +115,43 @@
                     <button type="button" class="lw-nav-item" data-section="scenario"><i class="fa-solid fa-flask"></i>
                         Scenario Analysis</button>
                 </div>
-                <div class="lw-nav-group">
+                <div class="lw-nav-group lender-system-nav">
                     <div class="lw-nav-group-label">Portfolio Intelligence</div>
                     <button type="button" class="lw-nav-item" data-section="portfolio"><i class="fa-solid fa-chart-pie"></i> Portfolio Risk</button>
                     <button type="button" class="lw-nav-item" data-section="audit"><i class="fa-solid fa-file-shield"></i> Decision Ledger</button>
                 </div>
-                <div class="lw-nav-group">
+                <div class="lw-nav-group fraudshield-nav-group fraud-system-nav">
+                    <div class="lw-nav-group-label">FraudShield · Detection</div>
+                    <button type="button" class="lw-nav-item active" data-section="fraud-monitor"><i
+                            class="fa-solid fa-shield-halved"></i> Transaction Monitor</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-alerts"><i
+                            class="fa-solid fa-bell"></i> Risk Alerts</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-rules"><i
+                            class="fa-solid fa-sliders"></i> Detection Rules</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-behavior"><i
+                            class="fa-solid fa-fingerprint"></i> Behavioral Profiles</button>
+                </div>
+                <div class="lw-nav-group fraudshield-nav-group fraud-system-nav">
+                    <div class="lw-nav-group-label">FraudShield · Intelligence</div>
+                    <button type="button" class="lw-nav-item" data-section="fraud-network"><i
+                            class="fa-solid fa-share-nodes"></i> Fraud Network</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-simulator"><i
+                            class="fa-solid fa-flask-vial"></i> Attack Simulator</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-model"><i
+                            class="fa-solid fa-microchip"></i> Model Center</button>
+                </div>
+                <div class="lw-nav-group fraudshield-nav-group fraud-system-nav">
+                    <div class="lw-nav-group-label">FraudShield · Operations</div>
+                    <button type="button" class="lw-nav-item" data-section="fraud-investigations"><i
+                            class="fa-solid fa-magnifying-glass"></i> Investigations</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-autopilot"><i
+                            class="fa-solid fa-bolt"></i> Fraud Autopilot</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-copilot"><i
+                            class="fa-solid fa-robot"></i> Investigation Copilot</button>
+                    <button type="button" class="lw-nav-item" data-section="fraud-security"><i
+                            class="fa-solid fa-lock"></i> Security & Health</button>
+                </div>
+                <div class="lw-nav-group lender-system-nav">
                     <div class="lw-nav-group-label">Governance</div>
                     <button type="button" class="lw-nav-item" data-section="responsible"><i
                             class="fa-solid fa-scale-balanced"></i> Responsible AI</button>
@@ -120,7 +163,7 @@
                 <!-- ========================================================
                  0. PENDING APPLICATION QUEUE (PHASE 2 landing view)
             ========================================================= -->
-                <section class="lw-section lw-section-active" data-section="queue">
+                <section class="lw-section" data-section="queue" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-section-heading">
                             <div class="lw-panel-title"><i class="fa-solid fa-inbox"></i> Pending Applications</div>
@@ -141,7 +184,7 @@
                  0b. APPLICATION DETAIL (read-only review, reached via
                      "Review Application" — not a top-level nav tab)
             ========================================================= -->
-                <section class="lw-section" data-section="detail">
+                <section class="lw-section" data-section="detail" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-panel-title"><i class="fa-solid fa-file-invoice"></i> Application Case File</div>
                         <button type="button" class="lw-btn" id="lwBackToQueueBtn"><i
@@ -155,7 +198,7 @@
                 <!-- ========================================================
                  1. APPLICATION (intake form)
             ========================================================= -->
-                <section class="lw-section" data-section="application">
+                <section class="lw-section" data-section="application" style="display:none!important;">
                     <div class="lw-panel">
                         <div class="lw-panel-header">
                             <div class="lw-panel-title"><i class="fa-solid fa-file-invoice"></i> Application Details
@@ -402,7 +445,7 @@
                 <!-- ========================================================
                  2. ASSESSMENT OVERVIEW (primary underwriting console)
             ========================================================= -->
-                <section class="lw-section" data-section="assessment">
+                <section class="lw-section" data-section="assessment" style="display:none!important;">
                     <div class="lw-grid lw-overview-grid">
                         <div class="lw-surface" id="lwAssessmentBody">
                             <div class="lw-empty" id="lwEmptyState">
@@ -450,7 +493,7 @@
                 <!-- ========================================================
                  3. REPAYMENT CAPACITY (existing entry point, kept intact)
             ========================================================= -->
-                <section class="lw-section" data-section="affordability">
+                <section class="lw-section" data-section="affordability" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-panel-title"><i class="fa-solid fa-sack-dollar"></i> Repayment Capacity
                             <span class="lw-badge">Real ₹ vs model units</span>
@@ -466,7 +509,7 @@
                 <!-- ========================================================
                  4. BORROWER EVIDENCE (existing entry point, kept intact)
             ========================================================= -->
-                <section class="lw-section" data-section="evidence">
+                <section class="lw-section" data-section="evidence" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-panel-title"><i class="fa-solid fa-file-lines"></i> Borrower Evidence
                             <span class="lw-badge">Real ₹ figures</span>
@@ -482,7 +525,7 @@
                 <!-- ========================================================
                  5. DECISION EXPLANATION (existing entry point, kept intact)
             ========================================================= -->
-                <section class="lw-section" data-section="explain">
+                <section class="lw-section" data-section="explain" style="display:none!important;">
                     <div class="lw-surface" id="lwExplainBody">
                         <div class="lw-panel-header">
                             <div class="lw-panel-title"><i class="fa-solid fa-magnifying-glass-chart"></i> Decision
@@ -498,7 +541,7 @@
                 <!-- ========================================================
                  6. APPLICATION ANOMALY (existing entry point, kept intact)
             ========================================================= -->
-                <section class="lw-section" data-section="anomaly">
+                <section class="lw-section" data-section="anomaly" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-panel-title"><i class="fa-solid fa-triangle-exclamation"></i> Application Anomaly
                         </div>
@@ -516,7 +559,7 @@
                     upgraded presentation — existing entry point / ids kept
                     intact so nothing else in the page needs to change)
             ========================================================= -->
-                <section class="lw-section" data-section="scenario">
+                <section class="lw-section" data-section="scenario" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-panel-title"><i class="fa-solid fa-flask"></i> Underwriting Decision Simulator
                         </div>
@@ -531,7 +574,7 @@
                 <!-- ========================================================
                  8. PORTFOLIO RISK INTELLIGENCE
             ========================================================= -->
-                <section class="lw-section" data-section="portfolio">
+                <section class="lw-section" data-section="portfolio" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-panel-title"><i class="fa-solid fa-chart-pie"></i> Portfolio Risk Intelligence</div>
                         <button type="button" class="lw-btn" id="lwRefreshPortfolioBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
@@ -544,7 +587,7 @@
                 <!-- ========================================================
                  9. DECISION LEDGER
             ========================================================= -->
-                <section class="lw-section" data-section="audit">
+                <section class="lw-section" data-section="audit" style="display:none!important;">
                     <div class="lw-blotter-head">
                         <div class="lw-section-heading">
                             <div class="lw-panel-title"><i class="fa-solid fa-file-shield"></i> Decision Ledger</div>
@@ -561,9 +604,154 @@
                 </section>
 
                 <!-- ========================================================
+                 FRAUDSHIELD — TRANSACTION MONITOR
+            ========================================================= -->
+                <section class="lw-section lw-section-active" data-section="fraud-monitor">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-shield-halved"></i> FraudShield — Transaction Monitor</div>
+                            <div class="lw-section-subtitle">Independent transaction-risk monitoring for activity observed by your institution. Scores prioritize review — a human always makes the final call.</div>
+                        </div>
+                        <div class="lw-section-live-actions">
+                            <span class="lw-data-fresh" id="lwFraudFreshMeta">Waiting for data</span>
+                            <button type="button" class="lw-btn" id="lwNewFraudTransactionBtn"><i class="fa-solid fa-plus"></i> New Transaction</button>
+                            <button type="button" class="lw-btn" id="lwRefreshFraudBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                        </div>
+                    </div>
+                    <div id="lwFraudSummary"></div>
+                    <div id="lwFraudMonitorBody">
+                        <div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading transaction monitor...</div>
+                    </div>
+                    <div id="lwFraudDetailModal" class="lw-fraud-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Transaction risk analysis">
+    <div class="lw-fraud-modal-backdrop" data-fraud-modal-close></div>
+    <div class="lw-fraud-modal-panel" role="document">
+        <div id="lwFraudDetailModalBody"></div>
+    </div>
+</div>
+                </section>
+
+                <!-- ========================================================
+                 FRAUDSHIELD — INVESTIGATIONS
+            ========================================================= -->
+                <section class="lw-section" data-section="fraud-autopilot">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-bolt"></i> FraudShield — Autonomous Response</div>
+                            <div class="lw-section-subtitle">Automatically contain high-risk activity, open cases, prepare evidence, and notify the internal security team while keeping government reporting human-approved.</div>
+                        </div>
+                        <div class="lw-section-live-actions">
+                            <span class="lw-data-fresh" id="lwFraudAutopilotStatus">Autopilot ready</span>
+                            <button type="button" class="lw-btn" id="lwFraudAutopilotScanBtn"><i class="fa-solid fa-crosshairs"></i> Scan Current Alerts</button>
+                            <button type="button" class="lw-btn lw-btn-primary" id="lwFraudAutopilotSaveBtn"><i class="fa-solid fa-floppy-disk"></i> Save Policy</button>
+                        </div>
+                    </div>
+                    <div id="lwFraudAutopilotBody"><div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading response policy...</div></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-investigations">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-magnifying-glass"></i> FraudShield — Investigations</div>
+                            <div class="lw-section-subtitle">Cases opened for elevated-risk transactions.</div>
+                        </div>
+                        <div class="lw-section-live-actions">
+                            <button type="button" class="lw-btn" id="lwRefreshInvestigationsBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                        </div>
+                    </div>
+                    <div id="lwInvestigationsBody">
+                        <div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading investigations...</div>
+                    </div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-alerts">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-bell"></i> FraudShield — Risk Alerts</div>
+                            <div class="lw-section-subtitle">Prioritized alert triage across the institution's monitored event stream.</div>
+                        </div>
+                    </div>
+                    <div id="lwFraudAlertsBody"><div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading risk alerts...</div></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-behavior">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-fingerprint"></i> FraudShield — Behavioral Profiles</div>
+                            <div class="lw-section-subtitle">Learn what normal looks like before judging what is unusual.</div>
+                        </div>
+                    </div>
+                    <div id="lwFraudBehaviorBody"><div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading behavioral intelligence...</div></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-network">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-share-nodes"></i> FraudShield — Fraud Network</div>
+                            <div class="lw-section-subtitle">Relationship intelligence for shared devices, merchants and beneficiaries.</div>
+                        </div>
+                    </div>
+                    <div id="lwFraudNetworkBody"><div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Building transaction graph...</div></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-simulator">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-flask-vial"></i> FraudShield — Attack Simulator</div>
+                            <div class="lw-section-subtitle">Safely simulate attack patterns against the same scoring pipeline.</div>
+                        </div>
+                    </div>
+                    <div id="lwFraudSimulatorBody"></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-rules">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-sliders"></i> FraudShield — Detection Rules</div>
+                            <div class="lw-section-subtitle">Configure institution-specific rule thresholds and weights used alongside ML, behavioral and network risk signals.</div>
+                        </div>
+                        <div class="lw-section-live-actions">
+                            <span class="lw-data-fresh" id="lwFraudRulesStatus">Policy ready</span>
+                            <button type="button" class="lw-btn lw-btn-primary" id="lwFraudRulesSaveBtn"><i class="fa-solid fa-floppy-disk"></i> Save & Re-score</button>
+                        </div>
+                    </div>
+                    <div id="lwFraudRulesBody"><div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading detection policy...</div></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-model">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-microchip"></i> FraudShield — Model Center</div>
+                            <div class="lw-section-subtitle">Model health, dataset provenance, feature contract and retraining controls.</div>
+                        </div>
+                        <div class="lw-section-live-actions"><button type="button" class="lw-btn" id="lwFraudRetrainBtn"><i class="fa-solid fa-rotate"></i> Retrain</button></div>
+                    </div>
+                    <div id="lwFraudModelCenterBody"><div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading model center...</div></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-copilot">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-robot"></i> FraudShield — Investigation Copilot</div>
+                            <div class="lw-section-subtitle">Ask evidence-grounded questions about monitored activity.</div>
+                        </div>
+                    </div>
+                    <div id="lwFraudCopilotBody"></div>
+                </section>
+
+                <section class="lw-section" data-section="fraud-security">
+                    <div class="lw-blotter-head">
+                        <div class="lw-section-heading">
+                            <div class="lw-panel-title"><i class="fa-solid fa-lock"></i> FraudShield — Security & Health</div>
+                            <div class="lw-section-subtitle">Integrity, authorization, replay protection, auditability and service health.</div>
+                        </div>
+                    </div>
+                    <div id="lwFraudSecurityBody"><div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Checking controls...</div></div>
+                </section>
+
+                <!-- ========================================================
                  8. RESPONSIBLE AI (existing entry point, kept intact)
             ========================================================= -->
-                <section class="lw-section" data-section="responsible">
+                <section class="lw-section" data-section="responsible" style="display:none!important;">
                     <div class="lw-surface" id="lwResponsibleBody">
                         <div class="lw-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading responsible AI
                             metrics...</div>
@@ -590,7 +778,7 @@
         ============================================================= -->
         <div id="lwWorkspaceToast" class="lw-workspace-toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
-        <div id="lwDecisionDock" class="lw-decision-dock" style="display:none;">
+        <div id="lwDecisionDock" class="lw-decision-dock phase1-hidden" style="display:none!important;">
             <div id="lwDecisionDockBody"></div>
         </div>
 
@@ -668,9 +856,11 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/lender_workspace.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/fraud_shield.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             initLenderWorkspace();
+            if (typeof initLwFraudShield === 'function') initLwFraudShield();
         });
 
         document.getElementById('logoutLink').addEventListener('click', async () => {

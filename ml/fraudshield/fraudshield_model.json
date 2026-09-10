@@ -1,0 +1,36 @@
+{
+  "format_version": 1,
+  "feature_names": [
+    "amount",
+    "txn_count_1h",
+    "txn_count_24h",
+    "location_distance_km",
+    "is_new_device",
+    "merchant_risk",
+    "account_age_days",
+    "transaction_hour",
+    "relationship_count",
+    "merchant_seen_before",
+    "device_trust_score",
+    "time_deviation_hours",
+    "amount_to_account_median",
+    "network_risk"
+  ],
+  "target_name": "is_fraud",
+  "model_version": "FraudShield XGBoost v2.0",
+  "dataset": "synthetic_upi_transactions.csv",
+  "training_records": 20000,
+  "fraud_rate": 13.89,
+  "metrics": {
+    "roc_auc": 0.9185,
+    "precision": 0.7471,
+    "recall": 0.8201,
+    "f1": 0.7819
+  },
+  "thresholds": {
+    "normal_max": 30,
+    "suspicious_max": 60,
+    "review_max": 80
+  },
+  "trained_at": "2026-09-10T11:36:38+00:00"
+}

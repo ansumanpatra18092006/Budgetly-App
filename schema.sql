@@ -30,6 +30,10 @@ CREATE TABLE public.transactions (
   reference_id text,
   utr text,
   source text,
+  verification_status text NOT NULL DEFAULT 'UNVERIFIED'::text,
+  verification_source text,
+  verified_at timestamp with time zone,
+  verification_reference text,
   CONSTRAINT transactions_pkey PRIMARY KEY (id),
   CONSTRAINT transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
@@ -82,6 +86,8 @@ CREATE TABLE public.loan_applications (
   CONSTRAINT loan_applications_borrower_id_fkey FOREIGN KEY (borrower_id) REFERENCES public.users(id),
   CONSTRAINT loan_applications_lender_id_fkey FOREIGN KEY (lender_id) REFERENCES public.users(id)
 );
+CREATE INDEX idx_transactions_user_verification
+  ON public.transactions (user_id, verification_status, date DESC);
 CREATE INDEX idx_transactions_user_timestamp
   ON public.transactions (user_id, transaction_timestamp DESC);
 CREATE UNIQUE INDEX idx_transactions_user_reference
@@ -141,3 +147,141 @@ CREATE INDEX IF NOT EXISTS idx_lender_audit_application_time
   ON public.lender_decision_audit (application_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_lender_audit_lender_time
   ON public.lender_decision_audit (lender_id, created_at DESC);
+
+-- FraudShield — independent institution-owned transaction intelligence domain
+CREATE TABLE IF NOT EXISTS public.fraudshield_transactions (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  institution_id bigint NOT NULL REFERENCES public.users(id),
+  account_ref text NOT NULL,
+  merchant text NOT NULL,
+  amount numeric(14,2) NOT NULL CHECK (amount > 0),
+  transaction_timestamp timestamp with time zone NOT NULL,
+  location text,
+  device_id text,
+  account_age_days integer NOT NULL DEFAULT 365,
+  txn_count_1h integer NOT NULL DEFAULT 1,
+  txn_count_24h integer NOT NULL DEFAULT 3,
+  location_distance_km double precision NOT NULL DEFAULT 0,
+  is_new_device boolean NOT NULL DEFAULT false,
+  merchant_risk double precision NOT NULL DEFAULT 0,
+  transaction_hour integer NOT NULL DEFAULT 12,
+  relationship_count integer NOT NULL DEFAULT 1,
+  merchant_seen_before boolean NOT NULL DEFAULT true,
+  device_trust_score double precision NOT NULL DEFAULT 0.9,
+  time_deviation_hours double precision NOT NULL DEFAULT 1.0,
+  amount_to_account_median double precision NOT NULL DEFAULT 1.0,
+  network_risk double precision NOT NULL DEFAULT 0.05,
+  channel text NOT NULL DEFAULT 'UPI',
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_fraudshield_transactions_institution_time
+  ON public.fraudshield_transactions (institution_id, transaction_timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS public.fraudshield_investigations (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  transaction_id bigint NOT NULL REFERENCES public.fraudshield_transactions(id),
+  institution_id bigint NOT NULL REFERENCES public.users(id),
+  risk_score integer NOT NULL,
+  risk_level text NOT NULL,
+  status text NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','REVIEWED','ESCALATED','CLOSED')),
+  opened_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  history jsonb NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_fraudshield_investigations_institution_time
+  ON public.fraudshield_investigations (institution_id, opened_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fraudshield_open_transaction
+  ON public.fraudshield_investigations (transaction_id)
+  WHERE status != 'CLOSED';
+
+
+-- ============================================================
+-- FraudShield post-Phase-1 intelligence / security extensions
+-- ============================================================
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS transaction_ref text;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS utr text;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS ip_address text;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS browser text;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS os text;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS beneficiary_ref text;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS failed_auth_count integer NOT NULL DEFAULT 0;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS previous_location text;
+ALTER TABLE public.fraudshield_transactions ADD COLUMN IF NOT EXISTS previous_transaction_timestamp timestamp with time zone;
+ALTER TABLE public.fraudshield_investigations ADD COLUMN IF NOT EXISTS assigned_analyst text;
+ALTER TABLE public.fraudshield_investigations ADD COLUMN IF NOT EXISTS analyst_notes text;
+ALTER TABLE public.fraudshield_investigations ADD COLUMN IF NOT EXISTS outcome text;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fraudshield_transaction_ref
+ON public.fraudshield_transactions(institution_id, transaction_ref)
+WHERE transaction_ref IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.fraudshield_audit_events (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  institution_id bigint NOT NULL REFERENCES public.users(id),
+  event_type text NOT NULL,
+  entity_type text,
+  entity_id text,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.fraudshield_replay_registry (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  institution_id bigint NOT NULL REFERENCES public.users(id),
+  fingerprint text NOT NULL,
+  transaction_ref text,
+  first_seen timestamp with time zone NOT NULL DEFAULT now(),
+  last_seen timestamp with time zone NOT NULL DEFAULT now(),
+  duplicate_count integer NOT NULL DEFAULT 0,
+  UNIQUE(institution_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS public.fraudshield_network_edges (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  institution_id bigint NOT NULL REFERENCES public.users(id),
+  source_ref text NOT NULL,
+  target_ref text NOT NULL,
+  relationship_type text NOT NULL,
+  weight double precision NOT NULL DEFAULT 0.5,
+  last_seen timestamp with time zone NOT NULL DEFAULT now(),
+  UNIQUE(institution_id, source_ref, target_ref, relationship_type)
+);
+
+CREATE TABLE IF NOT EXISTS public.fraudshield_model_runs (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  institution_id bigint NOT NULL REFERENCES public.users(id),
+  model_version text NOT NULL,
+  dataset text,
+  training_records integer,
+  metrics jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL DEFAULT 'READY',
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- Phase 2: per-institution configurable fraud detection policy
+CREATE TABLE IF NOT EXISTS public.fraudshield_rule_configs (
+  institution_id bigint PRIMARY KEY REFERENCES public.users(id),
+  rules jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- FraudShield Phase 2 autonomous response
+CREATE TABLE IF NOT EXISTS public.fraudshield_response_configs (
+  institution_id bigint PRIMARY KEY REFERENCES public.users(id),
+  policy jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.fraudshield_response_events (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  institution_id bigint NOT NULL REFERENCES public.users(id),
+  transaction_id bigint NOT NULL REFERENCES public.fraudshield_transactions(id),
+  case_id bigint NULL REFERENCES public.fraudshield_investigations(id),
+  risk_score integer NOT NULL,
+  action text NOT NULL,
+  state text NOT NULL DEFAULT 'ACTIVE',
+  notification_status text NOT NULL DEFAULT 'NOT_REQUIRED',
+  evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  UNIQUE(institution_id, transaction_id)
+);

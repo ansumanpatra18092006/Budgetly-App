@@ -99,6 +99,8 @@ async function loadLwAnalystProfile() {
         const name = typeof user.name === 'string' ? user.name.trim() : '';
         const email = typeof user.email === 'string' ? user.email.trim() : '';
         const displayName = name || 'Credit Risk';
+        const roleEl = document.getElementById('lwAnalystRole');
+        if (roleEl) roleEl.textContent = lwGetSystemMode() === 'fraud' ? 'Fraud Risk Analyst' : 'Credit Risk Analyst';
 
         if (nameEl) {
             nameEl.textContent = displayName;
@@ -122,6 +124,86 @@ async function loadLwAnalystProfile() {
 /* -----------------------------------------------------------------
    INIT
 ----------------------------------------------------------------- */
+function lwGetSystemMode() {
+    const root = document.querySelector('.lender-workspace');
+    return root && root.dataset.systemMode === 'fraud' ? 'fraud' : 'lender';
+}
+
+function lwApplySystemMode(mode) {
+    const root = document.querySelector('.lender-workspace');
+    if (!root) return;
+    const nextMode = mode === 'fraud' ? 'fraud' : 'lender';
+    root.dataset.systemMode = nextMode;
+    root.classList.toggle('system-fraud-mode', nextMode === 'fraud');
+    root.classList.toggle('system-lender-mode', nextMode === 'lender');
+
+    document.querySelectorAll('.lw-system-switch-btn').forEach(btn => {
+        const active = btn.dataset.system === nextMode;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const roleEl = document.getElementById('lwAnalystRole');
+    if (roleEl) roleEl.textContent = nextMode === 'fraud' ? 'Fraud Risk Analyst' : 'Credit Risk Analyst';
+
+    document.querySelectorAll('.fraud-system-nav').forEach(group => {
+        group.style.display = nextMode === 'fraud' ? 'flex' : 'none';
+    });
+    document.querySelectorAll('.lender-system-nav').forEach(group => {
+        group.style.display = nextMode === 'lender' ? 'flex' : 'none';
+    });
+
+    // Keep the context strip and lending decision dock meaningful only in lender mode.
+    const context = document.getElementById('lwContextStrip');
+    if (context) {
+        if (nextMode === 'fraud') context.style.setProperty('display', 'none', 'important');
+        else context.style.removeProperty('display');
+    }
+    const dock = document.getElementById('lwDecisionDock');
+    if (dock) {
+        if (nextMode === 'fraud') dock.style.setProperty('display', 'none', 'important');
+        else dock.style.removeProperty('display');
+    }
+
+    const target = nextMode === 'fraud' ? 'fraud-monitor' : 'queue';
+    lwShowSectionOnly(target);
+}
+
+function lwShowSectionOnly(target) {
+    document.querySelectorAll('.lw-section').forEach(section => {
+        const matches = section.getAttribute('data-section') === target;
+        section.classList.toggle('lw-section-active', matches);
+        section.style.setProperty('display', matches ? 'block' : 'none', 'important');
+    });
+    document.querySelectorAll('.lw-nav-item').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-section') === target);
+    });
+}
+
+function lwSetSystemMode(mode, persist = true) {
+    const nextMode = mode === 'fraud' ? 'fraud' : 'lender';
+    if (persist) {
+        try { localStorage.setItem('fintrust-institution-system-v2', nextMode); } catch (_) {}
+    }
+    lwApplySystemMode(nextMode);
+
+    // FraudShield has its own dashboard initialization; lender mode keeps the
+    // existing queue/application workflow untouched.
+    if (nextMode === 'fraud' && typeof initLwFraudShield === 'function') {
+        initLwFraudShield();
+    }
+}
+
+function lwInitSystemSwitcher() {
+    document.querySelectorAll('.lw-system-switch-btn').forEach(btn => {
+        btn.addEventListener('click', () => lwSetSystemMode(btn.dataset.system));
+    });
+    let saved = 'fraud';
+    try { saved = localStorage.getItem('fintrust-institution-system-v2') || 'fraud'; } catch (_) {}
+    // Post-Phase-1 default: always start in FraudShield for a fresh workspace.
+    // Once the analyst explicitly switches systems, remember that choice.
+    lwApplySystemMode(saved === 'lender' ? 'lender' : 'fraud');
+}
+
 function initLenderWorkspace() {
     if (lwInitialized) return;
     const form = document.getElementById('lenderAssessmentForm');
@@ -129,11 +211,14 @@ function initLenderWorkspace() {
     lwInitialized = true;
 
     loadLwAnalystProfile();
-
     initLwNav();
-    initLwConfirmModal();
-    initLwRiskAssistant();
-    form.addEventListener('submit', handleLwSubmit);
+    lwInitSystemSwitcher();
+
+    if (lwGetSystemMode() === 'lender') {
+        initLwConfirmModal();
+        initLwRiskAssistant();
+        form.addEventListener('submit', handleLwSubmit);
+    }
 
     const resetBtn = document.getElementById('lwResetBtn');
     if (resetBtn) resetBtn.addEventListener('click', handleLwReset);
@@ -141,38 +226,52 @@ function initLenderWorkspace() {
     const backBtn = document.getElementById('lwBackToQueueBtn');
     if (backBtn) backBtn.addEventListener('click', () => lwSwitchTab('queue'));
 
-    loadLwResponsibleAi();
-    loadLenderQueue();
-    initLwPortfolioAndAudit();
-    lwStartQueueAutoRefresh();
-    document.addEventListener('visibilitychange', () => {
-        if (document.hidden) return;
-        if (!lwQueueLastUpdatedAt || Date.now() - lwQueueLastUpdatedAt.getTime() > 45000) {
-            loadLenderQueue({ silent: true });
-        }
-    });
+    if (lwGetSystemMode() === 'lender') {
+        loadLwResponsibleAi();
+        loadLenderQueue();
+        initLwPortfolioAndAudit();
+        lwStartQueueAutoRefresh();
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden || lwGetSystemMode() !== 'lender') return;
+            if (!lwQueueLastUpdatedAt || Date.now() - lwQueueLastUpdatedAt.getTime() > 45000) {
+                loadLenderQueue({ silent: true });
+            }
+        });
+    } else if (typeof initLwFraudShield === 'function') {
+        initLwFraudShield();
+    }
 }
 
 function initLwNav() {
     const items = document.querySelectorAll('.lw-nav-item');
     items.forEach(btn => {
         btn.addEventListener('click', (e) => {
+            const target = e.currentTarget.getAttribute('data-section');
+            const targetIsFraud = String(target || '').startsWith('fraud-');
+            const activeMode = targetIsFraud ? 'fraud' : 'lender';
+            if (activeMode !== lwGetSystemMode()) {
+                lwSetSystemMode(activeMode);
+                return;
+            }
             items.forEach(b => b.classList.remove('active'));
             e.currentTarget.classList.add('active');
-
-            const target = e.currentTarget.getAttribute('data-section');
             document.querySelectorAll('.lw-section').forEach(sec => {
-                sec.classList.toggle('lw-section-active', sec.getAttribute('data-section') === target);
+                const matches = sec.getAttribute('data-section') === target;
+                sec.classList.toggle('lw-section-active', matches);
+                sec.style.setProperty('display', matches ? 'block' : 'none', 'important');
             });
-
-            // Switching tabs must never lose the selected application or
-            // reset its assessment — re-render from currentApplication.
             lwRenderTabForCurrentApplication(target);
         });
     });
 }
 
 function lwSwitchTab(sectionId) {
+    const targetIsFraud = String(sectionId || '').startsWith('fraud-');
+    const desiredMode = targetIsFraud ? 'fraud' : 'lender';
+    if (desiredMode !== lwGetSystemMode()) {
+        lwSetSystemMode(desiredMode);
+        return;
+    }
     const tab = document.querySelector(`.lw-nav-item[data-section="${sectionId}"]`);
     if (tab) tab.click();
 }
@@ -2106,12 +2205,36 @@ function renderLwAffordabilityFull(data) {
     const cap = data.financial_capacity || {};
     const loan = data.loan || {};
     const aff = data.affordability || {};
+    const integrity = data.data_integrity || {};
 
     const statusClass = aff.status === 'affordable' ? 'state-good' : (aff.status === 'strained' ? 'state-warn' : (aff.status === 'insufficient_data' ? '' : 'state-bad'));
 
     const surplusIsDeficit = typeof aff.available_surplus === 'number' && aff.available_surplus < 0;
 
+    const integrityWarning = integrity.warning ? `
+        <div class="lw-disclaimer" style="margin-bottom:14px;">
+            <i class="fa-solid fa-shield-halved"></i>
+            <span>${escapeLwHtml(integrity.warning)}</span>
+        </div>` : '';
+
     container.innerHTML = `
+        <div class="lw-panel-title" style="margin-bottom:10px;"><i class="fa-solid fa-shield-halved"></i> Financial Data Integrity
+            <span class="lw-context-muted" style="font-weight:600; text-transform:none; letter-spacing:0;">(verified evidence only)</span>
+        </div>
+        <div class="lw-stat-row" style="margin-bottom:14px;">
+            <div class="lw-stat-card"><div class="lw-stat-label">Verified Transactions</div>${lwVal(integrity.verified_transactions)}</div>
+            <div class="lw-stat-card"><div class="lw-stat-label">Unverified / Self-reported</div>${lwVal(integrity.unverified_transactions, { stateClass: (integrity.unverified_transactions || 0) > 0 ? 'state-warn' : '' })}</div>
+            <div class="lw-stat-card"><div class="lw-stat-label">Verified Evidence</div>${lwVal(integrity.verified_percent, { suffix: '%' })}</div>
+            <div class="lw-stat-card"><div class="lw-stat-label">Excluded Unverified Income</div>${lwVal(integrity.unverified_income_total, { prefix: '₹', stateClass: (integrity.unverified_income_total || 0) > 0 ? 'state-warn' : '' })}</div>
+        </div>
+        ${integrityWarning}
+        ${Number(integrity.verified_transactions || 0) === 0 ? `
+        <div class="lw-disclaimer" style="margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:16px;">
+            <span><i class="fa-solid fa-building-columns"></i> No verified bank history is available. For evaluation, load an explicitly synthetic sandbox bank feed; it does not verify or modify the borrower's self-reported records.</span>
+            <button type="button" class="lw-btn lw-btn-primary" id="lwLoadSandboxBankHistoryBtn" style="white-space:nowrap;"><i class="fa-solid fa-flask"></i> Load Sandbox Bank History</button>
+        </div>` : `
+        <div class="lw-panel-note" style="margin-bottom:14px;"><i class="fa-solid fa-circle-check"></i> Underwriting figures below are calculated from VERIFIED evidence only.</div>`}
+
         <div class="lw-panel-title" style="margin-bottom:10px;"><i class="fa-solid fa-wallet"></i> Current Cash Flow
             <span class="lw-context-muted" style="font-weight:600; text-transform:none; letter-spacing:0;">(real ₹, FinTrust history)</span>
         </div>
@@ -2144,6 +2267,30 @@ function renderLwAffordabilityFull(data) {
         </div>
         ${aff.reason ? `<div class="lw-disclaimer" style="margin-top:10px; margin-bottom:0;"><i class="fa-solid fa-circle-info"></i><span>${escapeLwHtml(aff.reason)}</span></div>` : ''}
     `;
+
+    const sandboxBtn = document.getElementById('lwLoadSandboxBankHistoryBtn');
+    if (sandboxBtn && currentApplication) {
+        sandboxBtn.addEventListener('click', async () => {
+            const applicationId = currentApplication.application_id;
+            sandboxBtn.disabled = true;
+            sandboxBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
+            try {
+                const res = await lwRequest(`/lender/applications/${encodeURIComponent(applicationId)}/demo-verified-history`, { method: 'POST' });
+                const payload = await res.json().catch(() => null);
+                if (!res.ok || !payload || payload.status !== 'success') throw new Error('sandbox seed failed');
+                lwShowToast(payload.inserted > 0 ? `${payload.inserted} sandbox bank records loaded` : 'Sandbox bank history already loaded', 'success');
+                if (currentApplication && String(currentApplication.application_id) === String(applicationId)) {
+                    delete currentApplication.repaymentCapacity;
+                    delete currentApplication.borrowerEvidence;
+                    await lwFetchAndRenderRepaymentCapacity(applicationId);
+                }
+            } catch (err) {
+                sandboxBtn.disabled = false;
+                sandboxBtn.innerHTML = '<i class="fa-solid fa-flask"></i> Load Sandbox Bank History';
+                lwShowToast('Could not load sandbox bank history.', 'error');
+            }
+        });
+    }
 }
 
 /* -----------------------------------------------------------------
@@ -2181,6 +2328,7 @@ function renderLwBehaviorFull(data) {
     const savings = data.savings || {};
     const recurring = data.recurring || {};
     const cashFlow = data.cash_flow || {};
+    const integrity = data.data_integrity || {};
     const flags = data.behavioral_flags || [];
 
     const flagsHtml = flags.length
@@ -2198,7 +2346,21 @@ function renderLwBehaviorFull(data) {
         ? (cashFlow.current_surplus < 0 ? 'state-bad' : 'state-good')
         : '';
 
+    const integrityWarning = integrity.warning ? `
+        <div class="lw-disclaimer" style="margin-bottom:14px;">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>${escapeLwHtml(integrity.warning)}</span>
+        </div>` : '';
+
     container.innerHTML = `
+        <div class="lw-panel-title" style="margin-bottom:10px;"><i class="fa-solid fa-fingerprint"></i> Evidence Provenance</div>
+        <div class="lw-stat-row" style="margin-bottom:14px;">
+            <div class="lw-stat-card"><div class="lw-stat-label">Verified</div>${lwVal(integrity.verified_transactions)}</div>
+            <div class="lw-stat-card"><div class="lw-stat-label">Excluded Unverified</div>${lwVal(integrity.unverified_transactions, { stateClass: (integrity.unverified_transactions || 0) > 0 ? 'state-warn' : '' })}</div>
+            <div class="lw-stat-card"><div class="lw-stat-label">Verified Share</div>${lwVal(integrity.verified_percent, { suffix: '%' })}</div>
+        </div>
+        ${integrityWarning}
+
         <div class="lw-panel-title" style="margin-bottom:10px;"><i class="fa-solid fa-chart-line"></i> Financial Stability</div>
         <div class="lw-stat-row">
             <div class="lw-stat-card"><div class="lw-stat-label">Income Stability</div>${lwVal(income.stability)}</div>

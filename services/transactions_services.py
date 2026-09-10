@@ -47,7 +47,7 @@ def fetch_transactions(user_id):
 def delete_transaction(user_id, tid):
     conn = get_db()
     conn.execute(
-        "DELETE FROM transactions WHERE id=%s AND user_id=%s",
+        "DELETE FROM transactions WHERE id=%s AND user_id=%s AND provenance='SELF_REPORTED'",
         (tid, user_id)
     )
     conn.commit()
@@ -59,8 +59,9 @@ def update_transaction(user_id, tid, data):
     conn.execute(
         """UPDATE transactions
            SET description=%s, amount=%s, category=%s, type=%s, date=%s,
-               transaction_timestamp=%s, reference_id=%s, utr=%s, source=%s
-           WHERE id=%s AND user_id=%s""",
+               transaction_timestamp=%s, reference_id=%s, utr=%s, source=%s,
+               provenance='SELF_REPORTED', verified_at=NULL, verification_reference=NULL, recorded_at=now()
+           WHERE id=%s AND user_id=%s AND provenance='SELF_REPORTED'""",
         (
             data["description"],
             data["amount"],
@@ -82,7 +83,7 @@ def update_transaction(user_id, tid, data):
 def clear_all_transactions(user_id):
     conn = get_db()
     conn.execute(
-        "DELETE FROM transactions WHERE user_id=%s",
+        "DELETE FROM transactions WHERE user_id=%s AND provenance='SELF_REPORTED'",
         (user_id,)
     )
     conn.commit()

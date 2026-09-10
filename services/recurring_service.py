@@ -96,12 +96,13 @@ def _normalize_merchant(description):
 # Phase 2: Candidate grouping
 # ============================================================
 
-def _fetch_transactions(user_id):
+def _fetch_transactions(user_id, verified_only=False):
     conn = get_db()
     try:
-        rows = conn.execute("""
+        verification_clause = " AND verification_status='VERIFIED'" if verified_only else ""
+        rows = conn.execute(f"""
             SELECT id, description, amount, category, type, date::date as dt
-            FROM transactions WHERE user_id=%s ORDER BY date ASC
+            FROM transactions WHERE user_id=%s{verification_clause} ORDER BY date ASC
         """, (user_id,)).fetchall()
     finally:
         conn.close()
@@ -775,7 +776,7 @@ _CLASS_TO_BUCKET = {
 }
 
 
-def analyze_recurring_transactions(user_id):
+def analyze_recurring_transactions(user_id, verified_only=False):
     """
     Analyzes a user's transaction history and returns structured recurring
     intelligence, bucketed by classification. Preserves the original
@@ -783,7 +784,7 @@ def analyze_recurring_transactions(user_id):
     unknown_recurring) and adds `possible_subscriptions` for weaker-evidence
     subscription candidates.
     """
-    rows = _fetch_transactions(user_id)
+    rows = _fetch_transactions(user_id, verified_only=verified_only)
     groups = _group_candidates(rows)
     today = date.today()
 

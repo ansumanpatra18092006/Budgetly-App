@@ -35,20 +35,23 @@ def _calc_stats(values):
     return mean, std_dev, cov
 
 
-def get_financial_behavior_profile(user_id):
+def get_financial_behavior_profile(user_id, verified_only=False):
     """
     Builds a comprehensive financial behavior profile using multi-month 
     database aggregates to calculate genuine stability and volatility.
     """
     conn = get_db()
     try:
-        # 1. Monthly Aggregates (Chronological)
-        rows = conn.execute("""
+        # 1. Monthly Aggregates (Chronological). Lender/underwriting callers
+        # use verified_only=True so consumer-controlled entries cannot improve
+        # repayment capacity. Consumer features keep using the complete history.
+        verification_clause = " AND verification_status='VERIFIED'" if verified_only else ""
+        rows = conn.execute(f"""
             SELECT to_char(date, 'YYYY-MM') as month,
                    SUM(CASE WHEN type='income' THEN amount ELSE 0 END) as income,
                    SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) as expense
             FROM transactions
-            WHERE user_id=%s
+            WHERE user_id=%s{verification_clause}
             GROUP BY month
             ORDER BY month ASC
         """, (user_id,)).fetchall()
@@ -61,13 +64,24 @@ def get_financial_behavior_profile(user_id):
 
         # 3. Current Month Top Category
         current_month = datetime.today().strftime("%Y-%m")
-        top_cat_row = conn.execute("""
+        top_cat_row = conn.execute(f"""
             SELECT COALESCE(category, 'Misc') as category, SUM(amount) as total
             FROM transactions
-            WHERE user_id=%s AND type='expense' AND to_char(date, 'YYYY-MM')=%s
+            WHERE user_id=%s AND type='expense' AND to_char(date, 'YYYY-MM')=%s{verification_clause}
             GROUP BY category
             ORDER BY total DESC LIMIT 1
         """, (user_id, current_month)).fetchone()
+
+        integrity_row = conn.execute("""
+            SELECT COUNT(*) AS total_count,
+                   COUNT(*) FILTER (WHERE verification_status='VERIFIED') AS verified_count,
+                   COUNT(*) FILTER (WHERE verification_status<>'VERIFIED') AS unverified_count,
+                   COALESCE(SUM(amount) FILTER (WHERE type='income' AND verification_status='VERIFIED'), 0) AS verified_income_total,
+                   COALESCE(SUM(amount) FILTER (WHERE type='income' AND verification_status<>'VERIFIED'), 0) AS unverified_income_total,
+                   COALESCE(SUM(amount) FILTER (WHERE type='expense' AND verification_status='VERIFIED'), 0) AS verified_expense_total,
+                   COALESCE(SUM(amount) FILTER (WHERE type='expense' AND verification_status<>'VERIFIED'), 0) AS unverified_expense_total
+            FROM transactions WHERE user_id=%s
+        """, (user_id,)).fetchone()
         
     finally:
         try:
@@ -152,7 +166,7 @@ def get_financial_behavior_profile(user_id):
     }
 
     # Recurring Burden
-    recurring_data_res = analyze_recurring_transactions(user_id)
+    recurring_data_res = analyze_recurring_transactions(user_id, verified_only=verified_only)
     active_subs = [s for s in recurring_data_res.get("subscriptions", []) if s.get("lifecycle_status") == "active"]
     active_bills = [b for b in recurring_data_res.get("recurring_bills", []) if b.get("lifecycle_status") == "active"]
     monthly_burden = sum(s["monthly_equivalent"] for s in active_subs) + sum(b["monthly_equivalent"] for b in active_bills)
@@ -269,9 +283,30 @@ def get_financial_behavior_profile(user_id):
     else:
         summary_text = "Healthy financial behavior"
 
+    total_count = int(integrity_row["total_count"] or 0) if integrity_row else 0
+    verified_count = int(integrity_row["verified_count"] or 0) if integrity_row else 0
+    unverified_count = int(integrity_row["unverified_count"] or 0) if integrity_row else 0
+    verified_ratio = round((verified_count / total_count) * 100, 1) if total_count else 0.0
+    data_integrity = {
+        "underwriting_mode": "VERIFIED_ONLY" if verified_only else "ALL_CONSUMER_DATA",
+        "total_transactions": total_count,
+        "verified_transactions": verified_count,
+        "unverified_transactions": unverified_count,
+        "verified_percent": verified_ratio,
+        "verified_income_total": round(float(integrity_row["verified_income_total"] or 0), 2) if integrity_row else 0.0,
+        "unverified_income_total": round(float(integrity_row["unverified_income_total"] or 0), 2) if integrity_row else 0.0,
+        "verified_expense_total": round(float(integrity_row["verified_expense_total"] or 0), 2) if integrity_row else 0.0,
+        "unverified_expense_total": round(float(integrity_row["unverified_expense_total"] or 0), 2) if integrity_row else 0.0,
+        "warning": (
+            f"{unverified_count} self-reported or unverified transaction(s) are excluded from underwriting."
+            if verified_only and unverified_count > 0 else None
+        ),
+    }
+
     return {
         "status": "success",
         "data_coverage": data_coverage,
+        "data_integrity": data_integrity,
         "income": income_data,
         "spending": spending_data,
         "savings": savings_data,

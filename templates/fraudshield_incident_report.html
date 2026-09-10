@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FraudShield Incident Report — {{ transaction.transaction_ref or transaction_id }}</title>
+  <style>
+    :root { color-scheme: light; --ink:#172033; --muted:#667085; --line:#d9deea; --panel:#f7f9fc; --danger:#b42318; --warning:#b54708; --ok:#027a48; --brand:#3157d5; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#eef2f7; color:var(--ink); font:14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .toolbar { position:sticky; top:0; z-index:10; display:flex; justify-content:flex-end; gap:10px; padding:12px 24px; background:rgba(238,242,247,.96); border-bottom:1px solid var(--line); }
+    .btn { border:1px solid #c7cfdd; background:#fff; color:#26324a; border-radius:8px; padding:9px 14px; font-weight:700; cursor:pointer; text-decoration:none; }
+    .btn-primary { background:var(--brand); border-color:var(--brand); color:#fff; }
+    .report { width:min(980px, calc(100% - 32px)); margin:24px auto 48px; background:#fff; box-shadow:0 12px 34px rgba(24,39,75,.10); }
+    .header { padding:34px 38px 26px; border-bottom:4px solid var(--brand); }
+    .brand { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+    .brand h1 { margin:0; font-size:26px; letter-spacing:-.02em; }
+    .brand p { margin:3px 0 0; color:var(--muted); }
+    .badge { padding:7px 12px; border-radius:999px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; font-size:12px; background:#fef3f2; color:var(--danger); border:1px solid #fecdca; }
+    .meta { margin-top:22px; display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+    .meta-item span, .metric span { display:block; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; font-weight:700; }
+    .meta-item strong { display:block; margin-top:4px; font-size:14px; overflow-wrap:anywhere; }
+    .content { padding:30px 38px 40px; }
+    section { margin-bottom:28px; break-inside:avoid; }
+    h2 { font-size:16px; margin:0 0 13px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+    .summary { background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:8px; padding:17px 18px; }
+    .summary strong { font-size:16px; }
+    .summary p { margin:6px 0 0; color:#475467; }
+    .risk-grid { display:grid; grid-template-columns:1.2fr repeat(4,1fr); gap:10px; }
+    .metric { border:1px solid var(--line); border-radius:8px; padding:14px; min-height:88px; }
+    .metric strong { display:block; margin-top:8px; font-size:21px; }
+    .metric.primary strong { font-size:31px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 28px; }
+    .row { display:flex; justify-content:space-between; gap:20px; padding:9px 0; border-bottom:1px solid #edf0f5; }
+    .row span:first-child { color:var(--muted); }
+    .row strong { text-align:right; overflow-wrap:anywhere; }
+    .signals { display:grid; gap:9px; }
+    .signal { padding:11px 13px; border:1px solid var(--line); background:#fbfcfe; border-radius:7px; }
+    .action-card { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+    .action-card > div { padding:15px; border:1px solid var(--line); border-radius:8px; }
+    .action-card span { color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; display:block; }
+    .action-card strong { display:block; margin-top:5px; font-size:15px; }
+    ol { margin:8px 0 0; padding-left:22px; }
+    li { margin:7px 0; }
+    .integrity { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; overflow-wrap:anywhere; padding:11px 13px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:7px; }
+    .notice { font-size:12px; color:#475467; background:#fffaeb; border:1px solid #fedf89; border-radius:7px; padding:12px 14px; }
+    .footer { padding-top:18px; margin-top:30px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; display:flex; justify-content:space-between; gap:20px; }
+    @media (max-width:760px) { .meta,.risk-grid,.grid,.action-card { grid-template-columns:1fr; } .content,.header { padding-left:20px; padding-right:20px; } }
+    @media print { @page { size:A4; margin:12mm; } body { background:#fff; } .toolbar { display:none !important; } .report { width:100%; margin:0; box-shadow:none; } .header { padding-top:8px; } a { color:inherit; text-decoration:none; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <a class="btn" href="?raw=1">Raw JSON</a>
+    <button class="btn btn-primary" onclick="window.print()">Print / Save PDF</button>
+  </div>
+
+  <main class="report">
+    <header class="header">
+      <div class="brand">
+        <div>
+          <h1>FraudShield Incident Report</h1>
+          <p>Autonomous fraud response & investigation evidence</p>
+        </div>
+        <div class="badge">{{ severity }} Risk</div>
+      </div>
+      <div class="meta">
+        <div class="meta-item"><span>Transaction</span><strong>{{ transaction.transaction_ref or ('#' ~ transaction_id) }}</strong></div>
+        <div class="meta-item"><span>Case</span><strong>{{ case_number or 'Not opened' }}</strong></div>
+        <div class="meta-item"><span>Generated</span><strong>{{ generated_at }}</strong></div>
+        <div class="meta-item"><span>Status</span><strong>{{ response_info.government_reporting or 'HUMAN APPROVAL REQUIRED' }}</strong></div>
+      </div>
+    </header>
+
+    <div class="content">
+      <section>
+        <h2>Executive Summary</h2>
+        <div class="summary">
+          <strong>FraudShield assigned a risk score of {{ score }}/100 and selected “{{ action_display }}”.</strong>
+          <p>{{ risk.reason or 'The activity was evaluated using model, rule, behavioural and contextual risk signals.' }}{% if case_number %} An investigation case {{ case_number }} has been associated with this incident.{% endif %}</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>Risk Assessment</h2>
+        <div class="risk-grid">
+          <div class="metric primary"><span>Overall Risk</span><strong>{{ score }}/100</strong></div>
+          <div class="metric"><span>Model Probability</span><strong>{% if risk.model_probability is not none %}{{ '%.1f'|format((risk.model_probability|float) * 100) }}%{% else %}—{% endif %}</strong></div>
+          <div class="metric"><span>Rule Score</span><strong>{{ risk.rule_score if risk.rule_score is not none else '—' }}</strong></div>
+          <div class="metric"><span>Anomaly Score</span><strong>{{ risk.anomaly_score if risk.anomaly_score is not none else '—' }}</strong></div>
+          <div class="metric"><span>ATO Risk</span><strong>{{ risk.account_takeover_risk if risk.account_takeover_risk is not none else '—' }}</strong></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Transaction & Context</h2>
+        <div class="grid">
+          <div>
+            <div class="row"><span>Account reference</span><strong>{{ transaction.account_ref or '—' }}</strong></div>
+            <div class="row"><span>Merchant</span><strong>{{ transaction.merchant or '—' }}</strong></div>
+            <div class="row"><span>Amount</span><strong>₹{{ '%.2f'|format(transaction.amount|float) }}</strong></div>
+            <div class="row"><span>Channel</span><strong>{{ transaction.channel or '—' }}</strong></div>
+            <div class="row"><span>Timestamp</span><strong>{{ transaction.timestamp or '—' }}</strong></div>
+          </div>
+          <div>
+            <div class="row"><span>Location</span><strong>{{ transaction.location or '—' }}</strong></div>
+            <div class="row"><span>Device ID</span><strong>{{ transaction.device_id or '—' }}</strong></div>
+            <div class="row"><span>Beneficiary</span><strong>{{ transaction.beneficiary_ref or '—' }}</strong></div>
+            <div class="row"><span>UTR</span><strong>{{ transaction.utr or '—' }}</strong></div>
+            <div class="row"><span>Internal transaction ID</span><strong>{{ transaction.transaction_id or transaction_id }}</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Triggered Risk Signals</h2>
+        <div class="signals">
+          {% if signals %}
+            {% for signal in signals %}
+              <div class="signal">
+                {% if signal is mapping %}
+                  <strong>{{ signal.label or signal.name or signal.rule or signal.code or 'Risk signal' }}</strong>
+                  {% if signal.reason or signal.description %}<div>{{ signal.reason or signal.description }}</div>{% endif %}
+                  {% if signal.points is defined %}<small>Contribution: {{ signal.points }} points</small>{% endif %}
+                {% else %}
+                  {{ signal }}
+                {% endif %}
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="signal">No individual rule contributors were recorded for this assessment.</div>
+          {% endif %}
+        </div>
+      </section>
+
+      <section>
+        <h2>Autonomous Response</h2>
+        <div class="action-card">
+          <div><span>Selected Action</span><strong>{{ action_display }}</strong></div>
+          <div><span>Investigation Case</span><strong>{{ case_number or 'Not required' }}</strong></div>
+          <div><span>Internal SOC Notification</span><strong>{{ notification.replace('_',' ') }}</strong></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Recommended Analyst Actions</h2>
+        <ol>{% for step in next_steps %}<li>{{ step }}</li>{% endfor %}</ol>
+      </section>
+
+      <section>
+        <h2>External Escalation Boundary</h2>
+        <div class="notice">
+          FraudShield may automate internal containment, case creation, evidence preparation and SOC notification. External cybercrime reporting remains human-approved. A risk score is an investigation signal, not proof of criminal activity.
+        </div>
+      </section>
+
+      <section>
+        <h2>Evidence Integrity</h2>
+        <p>This identifier is the SHA-256 digest of the canonical evidence bundle generated for this report. It can be used to detect accidental changes to the underlying bundle.</p>
+        <div class="integrity">SHA-256: {{ evidence_hash }}</div>
+      </section>
+
+      <div class="footer">
+        <span>FraudShield · Financial Institution Workspace</span>
+        <span>Confidential — Internal fraud investigation material</span>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

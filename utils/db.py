@@ -9,6 +9,8 @@ MIGRATION NOTES (SQLite -> PostgreSQL):
 """
 
 import os
+import time
+import random
 import psycopg
 from psycopg.rows import dict_row
 from contextlib import contextmanager
@@ -26,12 +28,20 @@ def get_db():
     # dict_row ensures results act like sqlite3.Row (dictionary-like access).
     # autocommit=False ensures we manually commit transactions, preserving the 
     # original SQLite transaction boundaries and preventing partial data writes.
-    conn = psycopg.connect(
-        DATABASE_URL,
-        row_factory=dict_row,
-        autocommit=False
-    )
-    return conn
+    max_attempts = max(1, int(os.getenv("DB_CONNECT_ATTEMPTS", "3")))
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return psycopg.connect(
+                DATABASE_URL, row_factory=dict_row, autocommit=False,
+                connect_timeout=int(os.getenv("DB_CONNECT_TIMEOUT", "5")),
+            )
+        except psycopg.OperationalError as exc:
+            last_error = exc
+            if attempt + 1 >= max_attempts:
+                break
+            time.sleep(min(2.0, 0.35 * (2 ** attempt)) + random.random() * 0.15)
+    raise last_error
 
 def init_db():
     """

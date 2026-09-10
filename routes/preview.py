@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 from utils.db import get_db
 from utils.decorators import login_required
 from datetime import datetime, timedelta
+from services.transaction_provenance import consumer_upi_confirmation_provenance
 
 preview_bp = Blueprint("preview", __name__)
 
@@ -115,18 +116,21 @@ def confirm_upi_transaction():
                 conn.commit()
                 return jsonify({"success": True, "transaction_id": existing["id"], "duplicate": True})
 
+        verification_status, verification_source, verified_at, verification_reference = consumer_upi_confirmation_provenance(upi_ref or None)
         cur = conn.execute(
             """INSERT INTO transactions
                (user_id, description, amount, type, category, date, status,
-                transaction_timestamp, reference_id, source)
-               VALUES (%s, %s, %s, 'expense', %s, %s, 'completed', %s, %s, %s)
+                transaction_timestamp, reference_id, source, verification_status,
+                verification_source, verified_at, verification_reference)
+               VALUES (%s, %s, %s, 'expense', %s, %s, 'completed', %s, %s, %s, %s, %s, %s, %s)
                RETURNING id""",
             (user_id, note, amount, category, date, transaction_timestamp,
-             upi_ref or None, "UPI")
+             upi_ref or None, "UPI", verification_status, verification_source,
+             verified_at, verification_reference)
         )
         tx_id = cur.fetchone()["id"]
         conn.commit()
     finally:
         conn.close()
 
-    return jsonify({"success": True, "transaction_id": tx_id})
+    return jsonify({"success": True, "transaction_id": tx_id, "verification_status": verification_status, "lender_eligible": False})

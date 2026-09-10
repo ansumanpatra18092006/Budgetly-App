@@ -494,9 +494,9 @@
     <main>
         <div class="section-header">
             <div>
-                <div class="section-title">Analyst / Lender Access</div>
-                <div class="section-desc">Provision new analyst accounts or promote an existing account to lender
-                    access.</div>
+                <div class="section-title">Analyst / Bank &amp; Financial Institution Access</div>
+                <div class="section-desc">Provision new analyst accounts or promote an existing account to Bank / Financial
+                    Institution access.</div>
             </div>
             <div style="display:flex; gap:10px;">
                 <button class="btn btn-secondary" id="promoteBtn"><i class="fa-solid fa-user-check"></i> Promote
@@ -539,7 +539,7 @@
     <div class="modal-overlay" id="provisionModal">
         <div class="modal">
             <h2>Provision Analyst</h2>
-            <p class="sub">Creates a new lender account. The analyst will set their own password via an emailed invite
+            <p class="sub">Creates a new Bank / Financial Institution account. The analyst will set their own password via an emailed invite
                 link.</p>
             <div class="modal-error" id="provisionError"></div>
             <div class="form-group">
@@ -649,7 +649,7 @@
                     tr.innerHTML = `
                         <td>${escapeHtml(u.name)}</td>
                         <td>${escapeHtml(u.email)}</td>
-                        <td><span class="badge badge-role">Lender</span></td>
+                        <td><span class="badge badge-role">Bank / Financial Institution</span></td>
                         <td>${statusBadge}</td>
                         <td>${invitationBadge(u.invitation_status)}</td>
                         <td>${formatDate(u.created_at)}</td>

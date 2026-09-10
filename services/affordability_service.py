@@ -17,8 +17,9 @@ def calculate_affordability(user_id, applicant):
     actual FinTrust financial capacity to determine affordability.
     """
     # 1. Fetch behavioral profile
-    behavior = get_financial_behavior_profile(user_id)
+    behavior = get_financial_behavior_profile(user_id, verified_only=True)
     coverage = behavior.get("data_coverage", {})
+    data_integrity = behavior.get("data_integrity", {})
     
     # 2. Extract applicant inputs
     try:
@@ -55,6 +56,7 @@ def calculate_affordability(user_id, applicant):
                 "income_available": income_avail,
                 "expense_data_available": expense_avail
             },
+            "data_integrity": data_integrity,
             "financial_capacity": {
                 "monthly_income": monthly_income,
                 "monthly_expenses": monthly_expenses,
@@ -73,7 +75,7 @@ def calculate_affordability(user_id, applicant):
                 "payment_to_income_ratio": None,
                 "payment_to_surplus_ratio": None,
                 "status": "insufficient_data",
-                "reason": "Insufficient financial history to accurately assess affordability."
+                "reason": "Insufficient VERIFIED financial history to assess affordability. Self-reported and unverified transactions are excluded from underwriting."
             }
         }
 
@@ -112,6 +114,7 @@ def calculate_affordability(user_id, applicant):
             "income_available": income_avail,
             "expense_data_available": expense_avail
         },
+        "data_integrity": data_integrity,
         "financial_capacity": {
             "monthly_income": monthly_income,
             "monthly_expenses": monthly_expenses,

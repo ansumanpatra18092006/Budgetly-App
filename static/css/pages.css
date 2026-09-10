@@ -633,3 +633,5 @@
   justify-content: center;
   margin-top: 20px;
 }
+
+.btn-icon.fraudshield-reported{color:var(--success)!important;opacity:.9}.btn-icon.fraudshield-reported:disabled{cursor:default}

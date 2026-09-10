@@ -62,6 +62,13 @@ function renderTransactionsList(transactions) {
                     onclick="openEditModal(${t.id},'${escapeJs(t.description)}',${t.amount},'${escapeJs(t.category)}','${t.type}','${t.date}')">
                     <i class="fa-solid fa-pencil" aria-hidden="true"></i>
                 </button>
+                ${t.type === 'expense' ? `
+                <button class="btn-icon ${t.fraudshield_reported ? 'fraudshield-reported' : ''}"
+                    title="${t.fraudshield_reported ? 'Reported to FraudShield' : 'Report suspicious activity'}"
+                    onclick="${t.fraudshield_reported ? '' : `reportTransactionToFraudShield(${t.id})`}"
+                    ${t.fraudshield_reported ? 'disabled' : ''}>
+                    <i class="fa-solid ${t.fraudshield_reported ? 'fa-shield-check' : 'fa-shield-halved'}" aria-hidden="true"></i>
+                </button>` : ''}
                 <button class="btn-icon danger" title="Delete" onclick="deleteTransaction(${t.id})">
                     <i class="fa-solid fa-trash" aria-hidden="true"></i>
                 </button>
@@ -118,6 +125,23 @@ function resetFilters() {
     document.getElementById('filterSearch').value = '';
     loadHistory();
     showNotification('Filters cleared', 'success');
+}
+
+async function reportTransactionToFraudShield(id) {
+    if (!confirm('Report this transaction to FraudShield? Only this transaction’s relevant security details will be shared with your connected institution.')) return;
+    try {
+        const res = await authFetch(`/report-suspicious-to-fraudshield/${id}`, {
+            method: 'POST',
+            body: JSON.stringify({note: 'User reported this transaction as suspicious.'})
+        });
+        const data = await res?.json().catch(() => ({}));
+        if (!res || !res.ok || !data.success) throw new Error(data.error || 'Report failed');
+        showNotification(data.message || 'Reported to FraudShield', 'success');
+        loadHistory();
+    } catch (err) {
+        console.error('FraudShield report failed:', err);
+        showNotification(err.message || 'Could not report transaction', 'error');
+    }
 }
 
 /* ================================================================

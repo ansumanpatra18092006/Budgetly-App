@@ -1,4 +1,4 @@
-from flask import Flask, render_template, session, redirect, url_for
+from flask import Flask, render_template, session, redirect, url_for, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv, find_dotenv
 import os
@@ -18,6 +18,7 @@ from utils.db import init_db
 # Migrations
 # ─────────────────────────────────────────────────────────────
 from utils.db_migrate import run_migrations
+from utils.runtime_guard import install_runtime_guard, metrics_snapshot
 
 # ─────────────────────────────────────────────────────────────
 # Blueprints
@@ -35,11 +36,13 @@ from routes.credit_risk import credit_risk_bp
 from routes.lender import lender_bp
 from routes.admin import admin_bp
 from routes.loan_application import loan_application_bp
+from routes.fraud_shield import fraud_shield_bp
 
 # ─────────────────────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────────────────────
 app = Flask(__name__)
+install_runtime_guard(app)
 
 # Secret key
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
@@ -50,7 +53,7 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 CORS(
     app,
     supports_credentials=True,
-    resources={r"/*": {"origins": "*"}},
+    resources={r"/*": {"origins": os.getenv("CORS_ORIGINS", "http://127.0.0.1:5000,http://localhost:5000").split(",")}},
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -90,6 +93,7 @@ app.register_blueprint(credit_risk_bp)
 app.register_blueprint(lender_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(loan_application_bp)
+app.register_blueprint(fraud_shield_bp)
 
 # ─────────────────────────────────────────────────────────────
 # Page routes
@@ -162,7 +166,21 @@ def get_me():
 
 @app.route("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "fintrust"}
+
+@app.route("/ready")
+def ready():
+    from utils.db import get_db
+    try:
+        conn=get_db(); conn.execute("SELECT 1"); conn.close()
+        return {"status":"ready","database":"ok"}
+    except Exception:
+        return {"status":"not_ready","database":"unavailable"}, 503
+
+@app.route("/metrics")
+def metrics():
+    # Keep operational metrics aggregate-only; no user/account data is exposed.
+    return jsonify({"status":"success", **metrics_snapshot()})
 
 
 # ─────────────────────────────────────────────────────────────

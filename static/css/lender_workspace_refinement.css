@@ -521,3 +521,176 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* ===================================================================
+   FraudShield — additive styles only. Reuses .lw-panel, .lw-table,
+   .lw-badge, .lw-btn, .lw-portfolio-* and the --lw-success-ui /
+   --lw-warning-ui / --lw-danger-ui palette already defined above,
+   so FraudShield reads as part of FinTrust rather than a bolt-on.
+=================================================================== */
+
+.lw-fraud-row:hover {
+    background: rgba(148, 163, 184, .06);
+}
+
+.lw-fraud-detail-panel {
+    margin-top: 16px;
+}
+
+.lw-fraud-contributors {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line, rgba(148,163,184,.12));
+}
+
+.lw-fraud-contributor-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: .92rem;
+    color: var(--lw-text-dim, #94a0b3);
+}
+
+.lw-fraud-pos { color: var(--lw-danger-ui); }
+.lw-fraud-neg { color: var(--lw-success-ui); }
+
+.lw-fraud-explanation {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line, rgba(148,163,184,.12));
+}
+
+.lw-fraud-ai-note {
+    color: var(--lw-text-dim, #94a0b3);
+    font-style: italic;
+}
+
+.lw-fraud-disclaimer {
+    font-size: .82rem;
+    color: var(--lw-text-faint, #5c6474);
+    margin-top: 8px;
+}
+
+.lw-fraud-case-block {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line, rgba(148,163,184,.12));
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.lw-fraud-case-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+
+/* Phase 1 FraudShield presentation mode (safe even when legacy CSS is cached). */
+body.phase1-fraudshield .phase1-hidden-nav,
+body.phase1-fraudshield .lw-nav-group:not(.fraudshield-nav-group),
+.lender-workspace.phase1-fraudshield .lw-nav-group:not(.fraudshield-nav-group) { display:none !important; }
+body.phase1-fraudshield .lw-context-strip,
+body.phase1-fraudshield .lw-decision-dock { display:none !important; }
+body.phase1-fraudshield .lw-section:not([data-section="fraud-monitor"]):not([data-section="fraud-investigations"]) { display:none !important; }
+
+/* ================================================================
+   POST-PHASE-1 SYSTEM SWITCHER
+   The institution workspace now has two clearly separated systems:
+   FraudShield and Lender System. Both remain in the same authenticated
+   workspace, but only one system's navigation/content is visible at a time.
+================================================================ */
+.lw-system-switcher {
+    margin: 0 0 10px;
+    padding: 4px 4px 12px;
+    border-bottom: 1px solid rgba(148,163,184,.10);
+}
+
+.lw-system-switcher-label {
+    padding: 5px 9px 7px;
+    color: #6f7d92;
+    font-size: .57rem;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.lw-system-switcher-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+}
+
+.lw-system-switch-btn {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    min-height: 38px;
+    padding: 9px 10px;
+    border: 1px solid rgba(148,163,184,.10);
+    border-radius: 9px;
+    background: rgba(255,255,255,.018);
+    color: #8794a8;
+    font: 700 .72rem/1.1 Inter, sans-serif;
+    cursor: pointer;
+    text-align: left;
+    transition: background .18s ease, color .18s ease, border-color .18s ease, transform .18s ease;
+}
+
+.lw-system-switch-btn i {
+    width: 16px;
+    text-align: center;
+    opacity: .78;
+}
+
+.lw-system-switch-btn:hover {
+    color: #edf2fa;
+    background: rgba(255,255,255,.04);
+    border-color: rgba(148,163,184,.18);
+    transform: translateY(-1px);
+}
+
+.lw-system-switch-btn.active[data-system="fraud"] {
+    color: #f4f7ff;
+    background: linear-gradient(90deg, rgba(239,68,68,.14), rgba(239,68,68,.04));
+    border-color: rgba(248,113,113,.30);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025), 0 8px 18px rgba(0,0,0,.10);
+}
+
+.lw-system-switch-btn.active[data-system="fraud"] i { color: #fb7185; opacity: 1; }
+
+.lw-system-switch-btn.active[data-system="lender"] {
+    color: #f4f7ff;
+    background: linear-gradient(90deg, rgba(59,130,246,.15), rgba(59,130,246,.045));
+    border-color: rgba(96,165,250,.30);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025), 0 8px 18px rgba(0,0,0,.10);
+}
+
+.lw-system-switch-btn.active[data-system="lender"] i { color: #7da9ff; opacity: 1; }
+
+.lender-workspace.system-fraud-mode .lw-system-switcher {
+    border-bottom-color: rgba(248,113,113,.14);
+}
+
+.lender-workspace.system-lender-mode .lw-system-switcher {
+    border-bottom-color: rgba(96,165,250,.12);
+}
+
+/* Never allow a hidden system group to reappear from another stylesheet. */
+.lender-workspace.system-fraud-mode .lender-system-nav,
+.lender-workspace.system-lender-mode .fraud-system-nav {
+    display: none !important;
+}
+
+.lender-workspace.system-fraud-mode .fraud-system-nav,
+.lender-workspace.system-lender-mode .lender-system-nav {
+    display: flex !important;
+}
+
+@media (max-width: 860px) {
+    .lw-system-switcher-buttons { grid-template-columns: 1fr 1fr; }
+    .lw-system-switch-btn { justify-content: center; }
+}
