@@ -37,6 +37,7 @@ from routes.lender import lender_bp
 from routes.admin import admin_bp
 from routes.loan_application import loan_application_bp
 from routes.fraud_shield import fraud_shield_bp
+from routes.razorpay_payments import razorpay_payments_bp
 
 # ─────────────────────────────────────────────────────────────
 # App
@@ -94,6 +95,7 @@ app.register_blueprint(lender_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(loan_application_bp)
 app.register_blueprint(fraud_shield_bp)
+app.register_blueprint(razorpay_payments_bp)
 
 # ─────────────────────────────────────────────────────────────
 # Page routes
