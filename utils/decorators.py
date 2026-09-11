@@ -37,6 +37,9 @@ def lender_required(f):
             return jsonify({"error": "Unauthorized"}), 401
         if session.get("role") != "lender":
             return jsonify({"error": "Forbidden"}), 403
+        if not session.get("two_factor_verified"):
+            session.clear()
+            return jsonify({"error": "Two-factor authentication required"}), 401
 
         conn = get_db()
         try:
@@ -75,5 +78,8 @@ def admin_required(f):
             return jsonify({"error": "Unauthorized"}), 401
         if session.get("role") != "admin":
             return jsonify({"error": "Forbidden"}), 403
+        if not session.get("two_factor_verified"):
+            session.clear()
+            return jsonify({"error": "Two-factor authentication required"}), 401
         return f(*args, **kwargs)
     return wrapper

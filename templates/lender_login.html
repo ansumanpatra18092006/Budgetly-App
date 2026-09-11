@@ -693,6 +693,29 @@
                         </button>
                     </form>
 
+                    <div id="twoFactorPanel" hidden style="margin-top:18px;">
+                        <div id="twoFactorSetup" hidden style="margin-bottom:16px;padding:14px;border:1px solid rgba(67,56,202,.18);border-radius:12px;background:rgba(67,56,202,.05);">
+                            <div style="font-weight:700;margin-bottom:6px;">Set up two-factor authentication</div>
+                            <div style="font-size:.82rem;line-height:1.5;margin-bottom:12px;">Open Google Authenticator, Microsoft Authenticator, Authy, or another TOTP app and scan this QR code. Then enter the 6-digit code it generates.</div>
+                            <div id="twoFactorQr" style="display:flex;justify-content:center;align-items:center;min-height:196px;padding:8px;background:#fff;border-radius:12px;border:1px solid rgba(15,23,42,.10);"></div>
+                            <div id="twoFactorQrError" hidden style="font-size:.8rem;line-height:1.45;margin-top:10px;padding:10px;border-radius:8px;background:#fff7ed;color:#9a3412;">QR code could not be generated. Use this manual setup key instead: <code id="twoFactorSecret" style="user-select:all;word-break:break-all;"></code></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="input-label" for="twoFactorCode">Authenticator code</label>
+                            <div class="input-wrapper">
+                                <input type="text" id="twoFactorCode" class="input-field" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="123456">
+                                <i class="fa-solid fa-shield-halved input-icon" aria-hidden="true"></i>
+                            </div>
+                            <span class="error-msg" role="alert"><i class="fa-solid fa-circle-exclamation"></i><span class="error-text"></span></span>
+                        </div>
+
+                        <button type="button" class="btn-primary" id="twoFactorVerifyBtn">
+                            <i class="fa-solid fa-lock"></i> Verify & Continue
+                        </button>
+                        <button type="button" id="twoFactorCancelBtn" style="width:100%;margin-top:10px;border:0;background:transparent;padding:10px;cursor:pointer;font-weight:600;opacity:.72;">Cancel and sign in again</button>
+                    </div>
+
                     <div class="footnote"><i class="fa-solid fa-shield-halved"></i> Authorized institutional access
                     </div>
                 </div>
@@ -708,6 +731,7 @@
         <div class="toast-msg" id="toastMsg"></div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         'use strict';
 
@@ -771,9 +795,39 @@
                 });
                 const data = await res.json();
 
-                if (res.ok && data.success) {
-                    showToast('success', 'Access granted', 'Redirecting to the analyst workspace…');
-                    setTimeout(() => { window.location.href = '/lender/workspace'; }, 900);
+                if (res.ok && data.success && data.requires_2fa) {
+                    form.hidden = true;
+                    const panel = document.getElementById('twoFactorPanel');
+                    panel.hidden = false;
+                    const setup = document.getElementById('twoFactorSetup');
+                    if (data.setup_required) {
+                        setup.hidden = false;
+                        const qrBox = document.getElementById('twoFactorQr');
+                        const qrError = document.getElementById('twoFactorQrError');
+                        const secretEl = document.getElementById('twoFactorSecret');
+                        qrBox.innerHTML = '';
+                        qrError.hidden = true;
+                        secretEl.textContent = data.secret || '';
+                        try {
+                            if (!data.provisioning_uri || typeof QRCode === 'undefined') throw new Error('QR generator unavailable');
+                            new QRCode(qrBox, {
+                                text: data.provisioning_uri,
+                                width: 180,
+                                height: 180,
+                                correctLevel: QRCode.CorrectLevel.M
+                            });
+                        } catch (qrErr) {
+                            qrBox.innerHTML = '<span style="font-size:.82rem;opacity:.65;">QR unavailable</span>';
+                            qrError.hidden = false;
+                        }
+                        showToast('success', 'Authenticator setup required', 'Scan the QR code, then verify the 6-digit code from your authenticator app.');
+                    } else {
+                        setup.hidden = true;
+                        showToast('success', 'Password verified', 'Enter the 6-digit code from your authenticator app.');
+                    }
+                    setTimeout(() => document.getElementById('twoFactorCode').focus(), 50);
+                } else if (res.ok && data.success) {
+                    window.location.href = data.redirect || '/lender/workspace';
                 } else if (res.status === 403) {
                     showToast('error', 'Not authorized', data.message || 'This account is not authorized for analyst access.');
                 } else {
@@ -787,6 +841,56 @@
                 btn.innerHTML = orig;
             }
         });
+
+
+        const twoFactorVerifyBtn = document.getElementById('twoFactorVerifyBtn');
+        const twoFactorCode = document.getElementById('twoFactorCode');
+
+        async function verifyTwoFactor() {
+            const code = twoFactorCode.value.replace(/\D/g, '');
+            clearErrors(document.getElementById('twoFactorPanel'));
+            if (code.length !== 6) {
+                showError(twoFactorCode, 'Enter the 6-digit authenticator code');
+                return;
+            }
+            twoFactorVerifyBtn.disabled = true;
+            const original = twoFactorVerifyBtn.innerHTML;
+            twoFactorVerifyBtn.innerHTML = '<span class="spinner"></span> Verifying…';
+            try {
+                const res = await fetch('/auth/2fa/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ code })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast('success', 'Two-factor verified', 'Opening secure workspace…');
+                    setTimeout(() => { window.location.href = data.redirect || '/lender/workspace'; }, 500);
+                    return;
+                }
+                showToast('error', 'Verification failed', data.message || 'Invalid authenticator code.');
+                twoFactorCode.select();
+            } catch (err) {
+                showToast('error', 'Network error', 'Unable to verify the authenticator code.');
+            } finally {
+                twoFactorVerifyBtn.disabled = false;
+                twoFactorVerifyBtn.innerHTML = original;
+            }
+        }
+
+        twoFactorVerifyBtn.addEventListener('click', verifyTwoFactor);
+        twoFactorCode.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); verifyTwoFactor(); }
+        });
+        twoFactorCode.addEventListener('input', () => {
+            twoFactorCode.value = twoFactorCode.value.replace(/\D/g, '').slice(0, 6);
+        });
+        document.getElementById('twoFactorCancelBtn').addEventListener('click', async () => {
+            try { await fetch('/auth/2fa/cancel', { method: 'POST', credentials: 'same-origin' }); } catch (_) {}
+            window.location.reload();
+        });
+
     </script>
 
 </body>

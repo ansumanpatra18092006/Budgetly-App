@@ -9,6 +9,7 @@ from utils.db import get_db
 def run_migrations():
     conn = get_db()
     try:
+        _patch_privileged_2fa(conn)
         _patch_transactions_status(conn)
         _patch_transaction_provenance(conn)
         _patch_lender_intelligence(conn)
@@ -22,6 +23,24 @@ def run_migrations():
         raise
     finally:
         conn.close()
+
+
+
+def _patch_privileged_2fa(conn):
+    """Add TOTP MFA state for lender/admin accounts.
+
+    Enrollment is intentionally server controlled. Existing privileged users
+    are forced through enrollment after their next successful password check.
+    """
+    conn.execute(
+        """
+        ALTER TABLE public.users
+            ADD COLUMN IF NOT EXISTS two_factor_enabled boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS two_factor_secret text,
+            ADD COLUMN IF NOT EXISTS two_factor_enrolled_at timestamp with time zone
+        """
+    )
+    print("[migrate] Ensured privileged-account 2FA schema exists.")
 
 
 def _patch_transactions_status(conn):

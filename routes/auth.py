@@ -8,10 +8,115 @@ from flask import render_template
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 import os
+import time
+from utils.totp import generate_secret, provisioning_uri, verify_code
 
 auth_bp = Blueprint("auth", __name__)
 
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:5000")
+
+def _begin_two_factor(user, role):
+    """Start a short-lived second-factor challenge without authenticating yet."""
+    secret = user.get("two_factor_secret")
+    setup_required = not bool(user.get("two_factor_enabled"))
+
+    if not secret:
+        secret = generate_secret()
+        conn = get_db()
+        try:
+            conn.execute(
+                "UPDATE users SET two_factor_secret=%s, two_factor_enabled=false WHERE id=%s",
+                (secret, user["id"]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        setup_required = True
+
+    session.clear()
+    session["pending_2fa_user_id"] = user["id"]
+    session["pending_2fa_role"] = role
+    session["pending_2fa_started_at"] = int(time.time())
+    session["pending_2fa_attempts"] = 0
+
+    payload = {
+        "success": True,
+        "requires_2fa": True,
+        "setup_required": setup_required,
+        "message": "Enter the 6-digit code from your authenticator app.",
+    }
+    if setup_required:
+        payload.update({
+            "secret": secret,
+            "provisioning_uri": provisioning_uri(secret, user.get("email") or str(user["id"])),
+            "message": "Set up an authenticator app, then enter the 6-digit code to finish sign-in.",
+        })
+    return jsonify(payload)
+
+
+@auth_bp.route("/auth/2fa/verify", methods=["POST"])
+def verify_two_factor():
+    user_id = session.get("pending_2fa_user_id")
+    role = session.get("pending_2fa_role")
+    started_at = int(session.get("pending_2fa_started_at") or 0)
+    attempts = int(session.get("pending_2fa_attempts") or 0)
+
+    if not user_id or role not in {"consumer", "lender", "admin"}:
+        return jsonify({"success": False, "message": "No active two-factor challenge."}), 401
+
+    if int(time.time()) - started_at > 300:
+        session.clear()
+        return jsonify({"success": False, "message": "Two-factor challenge expired. Sign in again."}), 401
+
+    if attempts >= 5:
+        session.clear()
+        return jsonify({"success": False, "message": "Too many invalid codes. Sign in again."}), 429
+
+    data = request.get_json(silent=True) or {}
+    code = str(data.get("code") or "").strip()
+
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT id,email,role,status,two_factor_enabled,two_factor_secret FROM users WHERE id=%s",
+            (user_id,),
+        ).fetchone()
+
+        if not user or user.get("role") != role or user.get("status") == "disabled":
+            session.clear()
+            return jsonify({"success": False, "message": "Account is no longer authorized."}), 403
+
+        secret = user.get("two_factor_secret")
+        if not secret or not verify_code(secret, code):
+            session["pending_2fa_attempts"] = attempts + 1
+            return jsonify({"success": False, "message": "Invalid authenticator code."}), 401
+
+        if not user.get("two_factor_enabled"):
+            conn.execute(
+                "UPDATE users SET two_factor_enabled=true, two_factor_enrolled_at=now() WHERE id=%s",
+                (user_id,),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+    session.clear()
+    session["user_id"] = user_id
+    session["logged_in"] = True
+    session["role"] = role
+    session["two_factor_verified"] = True
+    return jsonify({
+        "success": True,
+        "role": role,
+        "redirect": ("/lender/workspace" if role == "lender" else "/admin/workspace" if role == "admin" else "/"),
+    })
+
+
+@auth_bp.route("/auth/2fa/cancel", methods=["POST"])
+def cancel_two_factor():
+    session.clear()
+    return jsonify({"success": True})
+
 
 @auth_bp.route("/signup", methods=["POST"])
 def signup():
@@ -52,16 +157,11 @@ def login():
         if user.get("status") == "disabled":
             return jsonify({"success": False, "message": "This account has been disabled."}), 403
 
-        session.clear()
-        session["user_id"] = user["id"]
-        session["logged_in"] = True
-        # Every user has a role now (existing rows default to 'consumer' via
-        # migration). This does not gate anything in the consumer flow —
-        # it only lets role-aware decorators (e.g. lender-only, admin-only
-        # routes) recognize the session correctly if this same browser
-        # later hits a role-protected page.
-        session["role"] = user.get("role") or "consumer"
-        return jsonify({"success": True})
+        role = user.get("role") or "consumer"
+        # Consumer email/password login now uses the same TOTP second factor as
+        # the privileged workspaces. The authenticated session is created only
+        # after /auth/2fa/verify succeeds.
+        return _begin_two_factor(user, role)
 
     return jsonify({"success": False}), 401
 
@@ -103,11 +203,7 @@ def lender_login():
     if user.get("status") == "disabled":
         return jsonify({"success": False, "message": "This account has been disabled. Contact your administrator."}), 403
 
-    session.clear()
-    session["user_id"] = user["id"]
-    session["logged_in"] = True
-    session["role"] = "lender"
-    return jsonify({"success": True})
+    return _begin_two_factor(user, "lender")
 
 
 @auth_bp.route("/admin/do-login", methods=["POST"])
@@ -151,11 +247,7 @@ def admin_login():
     if user.get("status") == "disabled":
         return jsonify({"success": False, "message": "This account has been disabled."}), 403
 
-    session.clear()
-    session["user_id"] = user["id"]
-    session["logged_in"] = True
-    session["role"] = "admin"
-    return jsonify({"success": True})
+    return _begin_two_factor(user, "admin")
 
 
 @auth_bp.route("/logout", methods=["POST"])

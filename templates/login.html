@@ -1732,6 +1732,33 @@
                         </button>
 
                     </form>
+
+                    <div id="consumerTwoFactorPanel" hidden style="margin-top:18px;">
+                        <div id="consumerTwoFactorSetup" hidden style="margin-bottom:16px;padding:14px;border:1px solid rgba(67,56,202,.18);border-radius:12px;background:rgba(67,56,202,.05);">
+                            <div style="font-weight:700;margin-bottom:6px;">Set up two-factor authentication</div>
+                            <div style="font-size:.82rem;line-height:1.5;margin-bottom:12px;">Scan this QR code with Google Authenticator, Microsoft Authenticator, Authy, or another TOTP app. Then enter the 6-digit code it generates.</div>
+                            <div id="consumerTwoFactorQr" style="display:flex;justify-content:center;align-items:center;min-height:196px;padding:8px;background:#fff;border-radius:12px;border:1px solid rgba(15,23,42,.10);"></div>
+                            <div id="consumerTwoFactorQrError" hidden style="font-size:.8rem;line-height:1.45;margin-top:10px;padding:10px;border-radius:8px;background:#fff7ed;color:#9a3412;">QR code could not be generated. Use this manual setup key instead: <code id="consumerTwoFactorSecret" style="user-select:all;word-break:break-all;"></code></div>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="input-wrapper">
+                                <input type="text" id="consumerTwoFactorCode" class="input-field" placeholder=" " inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}">
+                                <label for="consumerTwoFactorCode" class="input-label">Authenticator code</label>
+                                <i class="fa-solid fa-shield-halved input-icon" aria-hidden="true"></i>
+                            </div>
+                            <span class="error-msg" role="alert">
+                                <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+                                <span class="error-text"></span>
+                            </span>
+                        </div>
+
+                        <button type="button" class="btn btn-primary" id="consumerTwoFactorVerifyBtn">
+                            <i class="fa-solid fa-lock" aria-hidden="true"></i> Verify & Continue
+                        </button>
+                        <button type="button" class="btn" id="consumerTwoFactorCancelBtn" style="margin-top:10px;background:transparent;border:0;box-shadow:none;">Cancel and sign in again</button>
+                    </div>
+
                     <div class="card-footer">
                         Don't have an account?
                         <a id="showSignUp" class="link" tabindex="0" role="button">&nbsp;Create one free</a>
@@ -1861,6 +1888,7 @@
 
     </div><!-- /page-wrapper -->
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         'use strict';
 
@@ -2021,9 +2049,43 @@
                     body: JSON.stringify({ email: emailInput.value.trim(), password: passInput.value })
                 });
                 const data = await res.json();
-                if (res.ok && data.success) {
+                if (res.ok && data.success && data.requires_2fa) {
+                    loginForm.hidden = true;
+                    const panel = document.getElementById('consumerTwoFactorPanel');
+                    const setup = document.getElementById('consumerTwoFactorSetup');
+                    panel.hidden = false;
+                    pageTitle.textContent = data.setup_required ? 'Secure your account' : 'Two-factor verification';
+                    pageTagline.textContent = data.setup_required ? 'Scan the QR code to enable 2FA' : 'Enter the code from your authenticator app';
+
+                    if (data.setup_required) {
+                        setup.hidden = false;
+                        const qrBox = document.getElementById('consumerTwoFactorQr');
+                        const qrError = document.getElementById('consumerTwoFactorQrError');
+                        const secretEl = document.getElementById('consumerTwoFactorSecret');
+                        qrBox.innerHTML = '';
+                        qrError.hidden = true;
+                        secretEl.textContent = data.secret || '';
+                        try {
+                            if (!data.provisioning_uri || typeof QRCode === 'undefined') throw new Error('QR generator unavailable');
+                            new QRCode(qrBox, {
+                                text: data.provisioning_uri,
+                                width: 180,
+                                height: 180,
+                                correctLevel: QRCode.CorrectLevel.M
+                            });
+                        } catch (qrErr) {
+                            qrBox.innerHTML = '<span style="font-size:.82rem;opacity:.65;">QR unavailable</span>';
+                            qrError.hidden = false;
+                        }
+                        showToast('success', 'Authenticator setup required', 'Scan the QR code and enter the generated 6-digit code.');
+                    } else {
+                        setup.hidden = true;
+                        showToast('success', 'Password verified', 'Enter the 6-digit code from your authenticator app.');
+                    }
+                    setTimeout(() => document.getElementById('consumerTwoFactorCode').focus(), 50);
+                } else if (res.ok && data.success) {
                     showToast('success', 'Welcome back!', 'Redirecting to your dashboard…');
-                    setTimeout(() => { window.location.href = '/'; }, 1100);
+                    setTimeout(() => { window.location.href = data.redirect || '/'; }, 700);
                 } else {
                     showError(emailInput, ''); showError(passInput, '');
                     showToast('error', 'Login Failed', data.message || 'Invalid email or password');
@@ -2033,6 +2095,63 @@
             } finally {
                 isLoginSubmitting = false; btn.disabled = false; btn.innerHTML = orig;
             }
+        });
+
+        const consumerTwoFactorVerifyBtn = document.getElementById('consumerTwoFactorVerifyBtn');
+        const consumerTwoFactorCode = document.getElementById('consumerTwoFactorCode');
+
+        async function verifyConsumerTwoFactor() {
+            const code = consumerTwoFactorCode.value.replace(/\D/g, '');
+            const group = consumerTwoFactorCode.closest('.form-group');
+            group.classList.remove('error');
+            if (code.length !== 6) {
+                showError(consumerTwoFactorCode, 'Enter the 6-digit authenticator code');
+                return;
+            }
+
+            consumerTwoFactorVerifyBtn.disabled = true;
+            const original = consumerTwoFactorVerifyBtn.innerHTML;
+            consumerTwoFactorVerifyBtn.innerHTML = '<span class="spinner"></span> Verifying…';
+            try {
+                const res = await fetch('/auth/2fa/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ code })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast('success', 'Verified', 'Two-factor authentication successful.');
+                    setTimeout(() => { window.location.href = data.redirect || '/'; }, 500);
+                    return;
+                }
+                showError(consumerTwoFactorCode, data.message || 'Invalid authenticator code');
+                showToast('error', 'Verification failed', data.message || 'Invalid authenticator code.');
+            } catch (err) {
+                showToast('error', 'Network Error', 'Unable to verify the authenticator code.');
+            } finally {
+                consumerTwoFactorVerifyBtn.disabled = false;
+                consumerTwoFactorVerifyBtn.innerHTML = original;
+            }
+        }
+
+        consumerTwoFactorVerifyBtn.addEventListener('click', verifyConsumerTwoFactor);
+        consumerTwoFactorCode.addEventListener('input', () => {
+            consumerTwoFactorCode.value = consumerTwoFactorCode.value.replace(/\D/g, '').slice(0, 6);
+            consumerTwoFactorCode.closest('.form-group').classList.remove('error');
+        });
+        consumerTwoFactorCode.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); verifyConsumerTwoFactor(); }
+        });
+        document.getElementById('consumerTwoFactorCancelBtn').addEventListener('click', async () => {
+            try { await fetch('/auth/2fa/cancel', { method: 'POST', credentials: 'same-origin' }); } catch (_) {}
+            document.getElementById('consumerTwoFactorPanel').hidden = true;
+            document.getElementById('consumerTwoFactorSetup').hidden = true;
+            consumerTwoFactorCode.value = '';
+            loginForm.hidden = false;
+            pageTitle.textContent = 'Welcome back';
+            pageTagline.textContent = 'Sign in to continue to your dashboard';
+            setTimeout(() => document.getElementById('loginEmail').focus(), 50);
         });
 
         const forgotSection = document.getElementById('forgotSection');
